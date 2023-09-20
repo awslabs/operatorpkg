@@ -3,7 +3,6 @@ module github.com/awslabs/operatorpkg
 go 1.20
 
 require (
-	dario.cat/mergo v1.0.0
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/prometheus/client_golang v1.16.0
 	github.com/samber/lo v1.38.1
