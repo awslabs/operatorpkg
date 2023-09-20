@@ -1,10 +1,10 @@
-Operatorpkg is a set of packages used to develop Kubernetes operators at AWS. It contains opinions on top of existing projects like k8s.io/apimachinery and github.com/kubernetes-sigs/controller-runtime. In many cases, we plan to mature packages in operatorpkg before commiting them upstream.
+Operatorpkg is a set of packages used to develop Kubernetes operators at AWS. It contains opinions on top of existing projects like https://github.com/kubernetes/apimachinery and https://github.com/kubernetes-sigs/controller-runtime. In many cases, we plan to mature packages in operatorpkg before commiting them upstream.
 
 We strive to maintain a relatively minimal dependency footprint, but some dependencies are necessary to provide value. 
 
 ## Maintainers
 
-Maintainers are limited to AWS employees, but we may consider external contributions and bug fixes. This project is maintained in service of a set of projects well known to the maintainers. We will not consider feature requests unless they are in direct support of these projects. For example, we are delighted to accept contributions from the community behind github.com/aws/karpenter-core. Before depending on this package, please speak with the maintainers.
+Maintainers are limited to AWS employees, but we may consider external contributions and bug fixes. This project is maintained in service of a set of projects well known to the maintainers. We will not consider feature requests unless they are in direct support of these projects. For example, we are delighted to accept contributions from the community behind https://github.com/aws/karpenter-core. Before depending on this package, please speak with the maintainers.
 
 ## Versioning
 
