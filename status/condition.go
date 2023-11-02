@@ -18,7 +18,31 @@ const (
 	ConditionSeverityError ConditionSeverity = "Error"
 )
 
+type ConditionType string
+
+const (
+	// ConditionReady signals that an object has finished reconciling. An object
+	// will remain Ready  until additional reconciliation is required.
+	ConditionReady ConditionType = "Ready"
+)
+
+type ConditionPolarity bool
+
+const (
+	// ConditionAbnormalFalse should be selected for the majority of conditions,
+	// such as persistent conditions that always appear on an object (e.g.
+	// Ready). Conditions with AbnormalFalse polarity use the semantic
+	// Normal=true, Abnormal=false, which is natural for humans to understand.
+	// AbnormalFalse conditions will use ConditionSeverityError if set to False.
+	// Golang will default an unspecified ConditionPolarity to false.
+	ConditionAbnormalFalse = false
+	// ConditionAbnormalTrue is useful for ephemeral conditions, which may occur
+	// rarely, or never occur for some instances of objects.
+	ConditionAbnormalTrue = true
+)
+
 // Condition is a v1.Condition, with an additional field called Severity
+// +kubebuilder:object:generate=true
 type Condition struct {
 	// type of condition in CamelCase or in foo.example.com/CamelCase.
 	// ---
@@ -29,7 +53,7 @@ type Condition struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
 	// +kubebuilder:validation:MaxLength=316
-	Type string `json:"type" protobuf:"bytes,1,opt,name=type"`
+	Type ConditionType `json:"type" protobuf:"bytes,1,opt,name=type"`
 	// status of the condition, one of True, False, Unknown.
 	// +required
 	// +kubebuilder:validation:Required

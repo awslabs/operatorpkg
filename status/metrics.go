@@ -63,7 +63,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	for _, condition := range o.StatusConditions().List() {
 		ConditionCount.MustCurryWith(labels).With(prometheus.Labels{
-			MetricLabelConditionType:   condition.Type,
+			MetricLabelConditionType:   string(condition.Type),
 			MetricLabelConditionStatus: string(condition.Status),
 		}).Set(1)
 	}

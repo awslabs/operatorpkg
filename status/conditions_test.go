@@ -25,7 +25,9 @@ type TestStatus struct {
 }
 
 func (t *TestObject) StatusConditions() status.Conditions {
-	return status.NewConditions(t, t.Status.Conditions)
+	return status.NewConditions(t, t.Status.Conditions, status.ConditionTypePolarity{
+		status.ConditionReady: status.ConditionAbnormalTrue,
+	})
 }
 
 var _ = Describe("Conditions", func() {
@@ -45,7 +47,7 @@ var _ = Describe("Conditions", func() {
 		// Update the condition
 		conditions.Set(ctx, status.Condition{Type: "foo", Status: metav1.ConditionTrue, Reason: "reason"})
 		fooCondition := conditions.Get("foo")
-		Expect(fooCondition.Type).To(Equal("foo"))
+		Expect(fooCondition.Type).To(Equal(status.ConditionType("foo")))
 		Expect(fooCondition.Status).To(Equal(metav1.ConditionTrue))
 		Expect(fooCondition.Reason).To(Equal("reason"))
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
@@ -53,7 +55,7 @@ var _ = Describe("Conditions", func() {
 		// Update another condition
 		conditions.Set(ctx, status.Condition{Type: "bar", Status: metav1.ConditionTrue, Reason: "reason"})
 		barCondition := conditions.Get("bar")
-		Expect(barCondition.Type).To(Equal("bar"))
+		Expect(barCondition.Type).To(Equal(status.ConditionType("bar")))
 		Expect(barCondition.Status).To(Equal(metav1.ConditionTrue))
 		Expect(barCondition.Reason).To(Equal("reason"))
 		Expect(barCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
@@ -61,7 +63,7 @@ var _ = Describe("Conditions", func() {
 		// transition the condition
 		conditions.Set(ctx, status.Condition{Type: "foo", Status: metav1.ConditionFalse, Reason: "reason"})
 		updatedFooCondition := conditions.Get("foo")
-		Expect(updatedFooCondition.Type).To(Equal("foo"))
+		Expect(updatedFooCondition.Type).To(Equal(status.ConditionType("foo")))
 		Expect(updatedFooCondition.Status).To(Equal(metav1.ConditionFalse))
 		Expect(updatedFooCondition.Reason).To(Equal("reason"))
 		Expect(updatedFooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", fooCondition.LastTransitionTime.UnixNano()))
@@ -69,7 +71,7 @@ var _ = Describe("Conditions", func() {
 		// Don't transition if the status is the same, but the Reason is different
 		conditions.Set(ctx, status.Condition{Type: "bar", Status: metav1.ConditionTrue, Reason: "another-reason"})
 		updatedBarCondition := conditions.Get("bar")
-		Expect(updatedBarCondition.Type).To(Equal("bar"))
+		Expect(updatedBarCondition.Type).To(Equal(status.ConditionType("bar")))
 		Expect(updatedBarCondition.Status).To(Equal(metav1.ConditionTrue))
 		Expect(updatedBarCondition.Reason).To(Equal("another-reason"))
 		Expect(updatedBarCondition.LastTransitionTime.UnixNano()).To(BeNumerically("==", barCondition.LastTransitionTime.UnixNano()))
