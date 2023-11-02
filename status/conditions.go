@@ -1,64 +1,68 @@
 package status
 
 import (
+	"context"
 	"time"
 
+	"github.com/awslabs/operatorpkg/event"
+	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/samber/lo"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	metricLabelName            = "name"
-	metricLabelNamespace       = "namespace"
-	metricLabelKind            = "kind"
-	metricLabelConditionType   = "type"
-	metricLabelConditionStatus = "status"
-	metricNamespace            = "operator"
-	metricSubsystem            = "status_condition"
-)
-
-type ConditionedObject interface {
-	v1.Object
-	runtime.Object
-	GetConditions() Conditions
+func NewConditions(object Object, conditions []Condition) Conditions {
+	return Conditions{object: object, conditions: lo.ToPtr(conditions)}
 }
 
-type Conditions []v1.Condition
+type Conditions struct {
+	object     client.Object
+	conditions *[]Condition
+}
 
-func (c *Conditions) Set(conditionType string, conditionStatus v1.ConditionStatus, conditionMessage string) {
-	condition := c.Get(conditionType)
+func (c Conditions) Set(ctx context.Context, condition Condition) {
+	condition.ObservedGeneration = c.object.GetGeneration()
 
-	if condition == nil {
-		*c = append(*c, v1.Condition{
-			Type:               conditionType,
-			Status:             conditionStatus,
-			Message:            conditionMessage,
-			Reason:             conditionType,
-			LastTransitionTime: v1.Now(),
-		})
+	existing := c.Get(condition.Type)
+	if existing == nil {
+		condition.LastTransitionTime = metav1.Now()
+		*c.conditions = append(*c.conditions, condition)
 		return
 	}
-
-	if condition.Status != conditionStatus {
+	if condition.Status != existing.Status {
+		condition.LastTransitionTime = metav1.Now()
+		// Record a metric
 		ConditionDuration.
-			With(prometheus.Labels{metricLabelConditionType: condition.Type, metricLabelConditionStatus: string(condition.Status)}).
-			Observe(time.Since(condition.LastTransitionTime.Time).Seconds())
-		condition.LastTransitionTime = v1.Now()
+			With(prometheus.Labels{MetricLabelConditionType: existing.Type, MetricLabelConditionStatus: string(existing.Status)}).
+			Observe(time.Since(existing.LastTransitionTime.Time).Seconds())
+		// Write a log
+		log.FromContext(ctx,
+			"object", object.ToString(c.object),
+			"condition", condition,
+		).Info("status transitioned")
+		// Emit an event
+		event.FromContext(ctx).Publish(event.Event{
+			InvolvedObject: c.object,
+			Type:           lo.Ternary(condition.Severity == ConditionSeverityInfo, v1.EventTypeNormal, v1.EventTypeWarning),
+			Reason:         condition.Reason,
+			Message:        condition.Message,
+		})
 	}
-
-	condition.ObservedGeneration = 0 // TODO, fix this to map to the object
-	condition.Message = conditionMessage
-	condition.Reason = conditionType // mirror type into reason
-	condition.Status = conditionStatus
+	*existing = condition
 }
 
-func (c *Conditions) Get(conditionType string) *v1.Condition {
-	for i := range *c {
-		condition := &[]v1.Condition(*c)[i]
-		if condition.Type == conditionType {
-			return condition
+func (c Conditions) Get(conditionType string) *Condition {
+	for i := range c.List() {
+		if (*c.conditions)[i].Type == conditionType {
+			return &(*c.conditions)[i]
 		}
 	}
 	return nil
+}
+
+func (c Conditions) List() []Condition {
+	return *c.conditions
 }
