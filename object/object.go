@@ -17,37 +17,35 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
-func ToString(o client.Object) string {
-	if o.GetNamespace() == "" {
-		return fmt.Sprintf("%s/%s", reflect.TypeOf(o).Elem(), o.GetName())
+func GKNN(o client.Object) string {
+	gvk := GVK(o)
+	gknn := fmt.Sprintf("%s.%s", gvk.Kind, gvk.Group)
+	if o.GetNamespace() != "" {
+		gknn += "/" + o.GetNamespace()
 	}
-	return fmt.Sprintf("%s/%s/%s", reflect.TypeOf(o).Elem(), o.GetNamespace(), o.GetName())
+	gknn += "/" + o.GetName()
+	return gknn
 }
 
 func GVK(o client.Object) schema.GroupVersionKind {
 	return lo.Must(apiutil.GVKForObject(o, scheme.Scheme))
 }
 
-func OwnedBy(owner client.Object, mergeFrom ...metav1.ObjectMeta) metav1.ObjectMeta {
+func WithOwner[T client.Object](owner client.Object, object T) T {
+	owned := reflect.New(reflect.TypeOf(object).Elem()).Interface().(T)
 	gvk := GVK(owner)
-	object := metav1.ObjectMeta{
-		Name:        owner.GetName(),
-		Namespace:   owner.GetNamespace(),
-		Annotations: owner.GetAnnotations(),
-		Labels:      owner.GetLabels(),
-		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion:         gvk.GroupVersion().String(),
-			Kind:               gvk.Kind,
-			Name:               owner.GetName(),
-			UID:                owner.GetUID(),
-			Controller:         lo.ToPtr(true),
-			BlockOwnerDeletion: lo.ToPtr(true),
-		}},
-	}
-	for _, meta := range mergeFrom {
-		lo.Must0(mergo.Merge(&object, &meta, mergo.WithOverride))
-	}
-	return object
+	owned.SetName(owner.GetName())
+	owned.SetNamespace(owner.GetNamespace())
+	owned.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               owner.GetName(),
+		UID:                owner.GetUID(),
+		Controller:         lo.ToPtr(true),
+		BlockOwnerDeletion: lo.ToPtr(true),
+	}})
+	lo.Must0(mergo.Merge(owned, object, mergo.WithOverride, mergo.WithAppendSlice))
+	return owned
 }
 
 func Hash(o client.Object) string {

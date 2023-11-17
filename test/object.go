@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	DiscoveryLabel       = "operators.k8s.aws/test-id"
+	APIGroup             = "operators.k8s.aws"
+	DiscoveryLabel       = APIGroup + "/test-id"
 	sequentialNumber     = 0
 	sequentialNumberLock = new(sync.Mutex)
 )

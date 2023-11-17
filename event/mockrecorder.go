@@ -24,7 +24,9 @@ func (r *MockRecorder) Publish(event ...Event) {
 func (r *MockRecorder) Calls() []Event {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.events
+	events := r.events
+	r.events = []Event{}
+	return events
 }
 
 func (r *MockRecorder) Reset() {

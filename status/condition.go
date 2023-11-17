@@ -1,97 +1,125 @@
+// Inspired by https://github.com/knative/pkg/tree/97c7258e3a98b81459936bc7a29dc6a9540fa357/apis,
+// but we chose to diverge due to the unacceptably large dependency closure of knative/pkg.
 package status
 
 import (
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type ConditionSeverity string
+type Object interface {
+	client.Object
+	GetConditions() []Condition
+	SetConditions([]Condition)
+	StatusConditions() ConditionSet
+}
 
-const (
-	// ConditionSeverityInfo is an informational condition to provide the user
-	// with additional context about the current state of the object. Since ""
-	// is used, the default severity is Info, and operators are responsible for
-	// delineating errors.
-	ConditionSeverityInfo ConditionSeverity = ""
-	// ConditionSeverityError means that something is wrong, and if the
-	// condition persists, user intervention may be required. Error conditions
-	// enable monitoring system to generally apply alerting rules to objects.
-	ConditionSeverityError ConditionSeverity = "Error"
-)
-
+// ConditionType is a upper-camel-cased condition type.
 type ConditionType string
 
 const (
-	// ConditionReady signals that an object has finished reconciling. An object
-	// will remain Ready  until additional reconciliation is required.
+	// ConditionReady specifies that the resource is ready.
+	// For long-running resources.
 	ConditionReady ConditionType = "Ready"
+	// ConditionSucceeded specifies that the resource has finished.
+	// For resource which run to completion.
+	ConditionSucceeded ConditionType = "Succeeded"
 )
 
-type ConditionPolarity bool
+// ConditionSeverity expresses the severity of a Condition Type failing.
+type ConditionSeverity string
 
 const (
-	// ConditionAbnormalFalse should be selected for the majority of conditions,
-	// such as persistent conditions that always appear on an object (e.g.
-	// Ready). Conditions with AbnormalFalse polarity use the semantic
-	// Normal=true, Abnormal=false, which is natural for humans to understand.
-	// AbnormalFalse conditions will use ConditionSeverityError if set to False.
-	// Golang will default an unspecified ConditionPolarity to false.
-	ConditionAbnormalFalse = false
-	// ConditionAbnormalTrue is useful for ephemeral conditions, which may occur
-	// rarely, or never occur for some instances of objects.
-	ConditionAbnormalTrue = true
+	// ConditionSeverityError specifies that a failure of a condition type
+	// should be viewed as an error.  As "Error" is the default for conditions
+	// we use the empty string (coupled with omitempty) to avoid confusion in
+	// the case where the condition is in state "True" (aka nothing is wrong).
+	ConditionSeverityError ConditionSeverity = ""
+	// ConditionSeverityInfo specifies that a failure of a condition type
+	// should be viewed as purely informational, and that things could still work.
+	ConditionSeverityInfo ConditionSeverity = "Info"
 )
 
-// Condition is a v1.Condition, with an additional field called Severity
-// +kubebuilder:object:generate=true
+// Condition defines a readiness condition for a resource.
+// See: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+// +k8s:deepcopy-gen=true
 type Condition struct {
-	// type of condition in CamelCase or in foo.example.com/CamelCase.
-	// ---
-	// Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-	// useful (see .node.status.conditions), the ability to deconflict is important.
-	// The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+	// Type of condition.
 	// +required
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-	// +kubebuilder:validation:MaxLength=316
-	Type ConditionType `json:"type" protobuf:"bytes,1,opt,name=type"`
-	// status of the condition, one of True, False, Unknown.
+	Type ConditionType `json:"type" description:"type of status condition"`
+
+	// Status of the condition, one of True, False, Unknown.
 	// +required
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=True;False;Unknown
-	Status v1.ConditionStatus `json:"status" protobuf:"bytes,2,opt,name=status"`
-	// observedGeneration represents the .metadata.generation that the condition was set based upon.
-	// For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-	// with respect to the current state of the instance.
+	Status metav1.ConditionStatus `json:"status" description:"status of the condition, one of True, False, Unknown"`
+
+	// Severity with which to treat failures of this type of condition.
+	// When this is not specified, it defaults to Error.
 	// +optional
-	// +kubebuilder:validation:Minimum=0
-	ObservedGeneration int64 `json:"observedGeneration,omitempty" protobuf:"varint,3,opt,name=observedGeneration"`
-	// lastTransitionTime is the last time the condition transitioned from one status to another.
-	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-	// +required
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Type=string
-	// +kubebuilder:validation:Format=date-time
-	LastTransitionTime v1.Time `json:"lastTransitionTime" protobuf:"bytes,4,opt,name=lastTransitionTime"`
-	// reason contains a programmatic identifier indicating the reason for the condition's last transition.
-	// Producers of specific condition types may define expected values and meanings for this field,
-	// and whether the values are considered a guaranteed API.
-	// The value should be a CamelCase string.
-	// This field may not be empty.
-	// +required
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:Pattern=`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`
-	Reason string `json:"reason" protobuf:"bytes,5,opt,name=reason"`
-	// message is a human readable message indicating details about the transition.
-	// This may be an empty string.
-	// +required
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=32768
-	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
-	// Severity of the condition.
+	Severity ConditionSeverity `json:"severity,omitempty" description:"how to interpret failures of this condition, one of Error, Warning, Info"`
+
+	// LastTransitionTime is the last time the condition transitioned from one status to another.
 	// +optional
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=;Error;
-	Severity ConditionSeverity `json:"severity,omitempty"`
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" description:"last time the condition transit from one status to another"`
+
+	// The reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty" description:"one-word CamelCase reason for the condition's last transition"`
+
+	// A human readable message indicating details about the transition.
+	// +optional
+	Message string `json:"message,omitempty" description:"human-readable message indicating details about last transition"`
+}
+
+// IsTrue is true if the condition is True
+func (c *Condition) IsTrue() bool {
+	if c == nil {
+		return false
+	}
+	return c.Status == metav1.ConditionTrue
+}
+
+// IsFalse is true if the condition is False
+func (c *Condition) IsFalse() bool {
+	if c == nil {
+		return false
+	}
+	return c.Status == metav1.ConditionFalse
+}
+
+// IsUnknown is true if the condition is Unknown
+func (c *Condition) IsUnknown() bool {
+	if c == nil {
+		return true
+	}
+	return c.Status == metav1.ConditionUnknown
+}
+
+func (c *Condition) GetSeverity() ConditionSeverity {
+	if c == nil {
+		return ConditionSeverityError
+	}
+	return c.Severity
+}
+
+func (c *Condition) GetStatus() metav1.ConditionStatus {
+	if c == nil {
+		return metav1.ConditionUnknown
+	}
+	return c.Status
+}
+
+// GetReason returns a nil save string of Reason
+func (c *Condition) GetReason() string {
+	if c == nil {
+		return ""
+	}
+	return c.Reason
+}
+
+// GetMessage returns a nil save string of Message
+func (c *Condition) GetMessage() string {
+	if c == nil {
+		return ""
+	}
+	return c.Message
 }
