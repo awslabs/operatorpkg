@@ -20,24 +20,24 @@ type ConditionTypes struct {
 	dependents []ConditionType
 }
 
-// NewLivingConditions returns a ConditionTypes to hold the conditions for the
-// living resource. ConditionReady is used as the root condition.
+// NewReadyConditions returns a ConditionTypes to hold the conditions for the
+// resource. ConditionReady is used as the root condition.
 // The set of condition types provided are those of the terminal subconditions.
-func NewLivingConditions(d ...ConditionType) ConditionTypes {
+func NewReadyConditions(d ...ConditionType) ConditionTypes {
 	return newConditionTypes(ConditionReady, d...)
 }
 
 // NewBatchConditions returns a ConditionTypes to hold the conditions for the
-// batch resource. ConditionSucceeded is used as the happy condition.
+// batch resource. ConditionSucceeded is used as the root condition.
 // The set of condition types provided are those of the terminal subconditions.
-func NewBatchConditions(d ...ConditionType) ConditionTypes {
+func NewSucceededConditions(d ...ConditionType) ConditionTypes {
 	return newConditionTypes(ConditionSucceeded, d...)
 }
 
-func newConditionTypes(happy ConditionType, dependents ...ConditionType) ConditionTypes {
+func newConditionTypes(root ConditionType, dependents ...ConditionType) ConditionTypes {
 	return ConditionTypes{
-		root:       happy,
-		dependents: lo.Reject(lo.Uniq(dependents), func(c ConditionType, _ int) bool { return c == happy }),
+		root:       root,
+		dependents: lo.Reject(lo.Uniq(dependents), func(c ConditionType, _ int) bool { return c == root }),
 	}
 }
 
@@ -65,7 +65,7 @@ func (r ConditionTypes) For(object Object) ConditionSet {
 	return cs
 }
 
-// Root looks returns the root Condition
+// Root returns the root Condition, typically "Ready" or "Succeeded"
 func (c ConditionSet) Root() *Condition {
 	return c.Get(c.root)
 }
@@ -149,14 +149,14 @@ func (c ConditionSet) Clear(t ConditionType) error {
 	return nil
 }
 
-// SetTrue sets the status of t to true, and then marks the happy condition to
+// SetTrue sets the status of t to true, and then marks the root condition to
 // true if all other dependents are also true.
 func (c ConditionSet) SetTrue(t ConditionType) {
 	c.SetTrueWithReason(t, "", "")
 	c.recomputeRootCondition(t)
 }
 
-// SetTrueWithReason sets the status of t to true with the reason, and then marks the happy condition to
+// SetTrueWithReason sets the status of t to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
 func (c ConditionSet) SetTrueWithReason(t ConditionType, reason, message string) {
 	c.Set(Condition{
@@ -169,10 +169,10 @@ func (c ConditionSet) SetTrueWithReason(t ConditionType, reason, message string)
 	c.recomputeRootCondition(t)
 }
 
-// recomputeRootCondition marks the happy condition to true if all other dependents are also true.
+// recomputeRootCondition marks the root condition to true if all other dependents are also true.
 func (r ConditionSet) recomputeRootCondition(t ConditionType) {
-	if c := r.findUnhappyDependent(); c != nil {
-		// Propagate unhappy dependent to happy condition.
+	if c := r.findUnrootDependent(); c != nil {
+		// Propagate unroot dependent to root condition.
 		r.Set(Condition{
 			Type:     r.root,
 			Status:   c.Status,
@@ -181,7 +181,7 @@ func (r ConditionSet) recomputeRootCondition(t ConditionType) {
 			Severity: r.severity(r.root),
 		})
 	} else if t != r.root {
-		// Set the happy condition to true.
+		// Set the root condition to true.
 		r.Set(Condition{
 			Type:     r.root,
 			Status:   metav1.ConditionTrue,
@@ -190,7 +190,7 @@ func (r ConditionSet) recomputeRootCondition(t ConditionType) {
 	}
 }
 
-func (c ConditionSet) findUnhappyDependent() *Condition {
+func (c ConditionSet) findUnrootDependent() *Condition {
 	// This only works if there are dependents.
 	if len(c.dependents) == 0 {
 		return nil
@@ -232,7 +232,7 @@ func (c ConditionSet) findUnhappyDependent() *Condition {
 	return nil
 }
 
-// SetUnknown sets the status of t to Unknown and also sets the happy condition
+// SetUnknown sets the status of t to Unknown and also sets the root condition
 // to Unknown if no other dependent condition is in an error state.
 func (r ConditionSet) SetUnknown(t ConditionType, reason, message string) {
 	// set the specified condition
@@ -250,9 +250,9 @@ func (r ConditionSet) SetUnknown(t ConditionType, reason, message string) {
 		c := r.Get(cond)
 		// Failed conditions trump Unknown conditions
 		if c.IsFalse() {
-			// Double check that the happy condition is also false.
-			happy := r.Get(r.root)
-			if !happy.IsFalse() {
+			// Double check that the root condition is also false.
+			root := r.Get(r.root)
+			if !root.IsFalse() {
 				r.SetFalse(r.root, reason, message)
 			}
 			return

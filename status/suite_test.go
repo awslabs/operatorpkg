@@ -49,7 +49,7 @@ const (
 )
 
 func (t *TestObject) StatusConditions() status.ConditionSet {
-	return status.NewLivingConditions(ConditionTypeFoo, ConditionTypeBar).For(t)
+	return status.NewReadyConditions(ConditionTypeFoo, ConditionTypeBar).For(t)
 }
 
 func (t *TestObject) GetConditions() []status.Condition {

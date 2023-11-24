@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/awslabs/operatorpkg/event"
 	"github.com/awslabs/operatorpkg/status"
 	. "github.com/awslabs/operatorpkg/test"
 	"github.com/onsi/ginkgo/v2"
@@ -14,24 +13,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 )
 
 var _ = Describe("Controller", func() {
-
 	var ctx context.Context
-	var mockRecorder *event.MockRecorder
+	var recorder *record.FakeRecorder
 	var controller *status.Controller
 	var client client.Client
 	BeforeEach(func() {
-		mockRecorder = event.NewMockRecorder()
+		recorder = record.NewFakeRecorder(10)
 		client = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-		controller = status.NewController(client, &TestObject{})
-		ctx = context.Background()
-		ctx = log.IntoContext(ctx, ginkgo.GinkgoLogr)
-		ctx = event.IntoContext(ctx, mockRecorder)
+		controller = status.NewController(client, &TestObject{}, recorder)
+		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 	})
 
 	It("should emit metrics and events on a transition", func() {
@@ -51,7 +47,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_transition_seconds")).To(BeNil())
-		Expect(mockRecorder.Calls()).To(BeEmpty())
+		Eventually(recorder.Events).Should(BeEmpty())
 
 		// Transition Foo
 		time.Sleep(time.Second * 1)
@@ -79,15 +75,10 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
-		Expect(mockRecorder.Calls()).To(ConsistOf(SatisfyAll(
-			HaveField("InvolvedObject", SatisfyAll(HaveField("Name", testObject.Name), HaveField("Namespace", testObject.Namespace))),
-			HaveField("Type", v1.EventTypeWarning),
-			HaveField("Reason", string(ConditionTypeFoo)),
-			HaveField("Message", ""),
-		)))
+		Expect(recorder.Events).To(Receive(Equal("Normal Foo Status condition transitioned, Foo: Unknown -> True")))
 
 		// Transition Bar, root condition should also flip
-		testObject.StatusConditions().SetTrue(ConditionTypeBar)
+		testObject.StatusConditions().SetTrueWithReason(ConditionTypeBar, "reason", "message")
 		ExpectApplied(ctx, client, testObject)
 		ExpectToReconcile(ctx, controller, testObject)
 
@@ -111,20 +102,8 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetSummary().GetSampleSum()).To(BeNumerically(">", 0))
 
-		Expect(mockRecorder.Calls()).To(ConsistOf(
-			SatisfyAll(
-				HaveField("InvolvedObject", SatisfyAll(HaveField("Name", testObject.Name), HaveField("Namespace", testObject.Namespace))),
-				HaveField("Type", v1.EventTypeWarning),
-				HaveField("Reason", string(ConditionTypeBar)),
-				HaveField("Message", ""),
-			),
-			SatisfyAll(
-				HaveField("InvolvedObject", SatisfyAll(HaveField("Name", testObject.Name), HaveField("Namespace", testObject.Namespace))),
-				HaveField("Type", v1.EventTypeWarning),
-				HaveField("Reason", string(status.ConditionReady)),
-				HaveField("Message", ""),
-			),
-		))
+		Expect(recorder.Events).To(Receive(Equal("Normal Bar Status condition transitioned, Bar: Unknown -> True, reason, message")))
+		Expect(recorder.Events).To(Receive(Equal("Normal Ready Status condition transitioned, Ready: Unknown -> True")))
 	})
 })
 

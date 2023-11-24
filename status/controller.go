@@ -2,13 +2,14 @@ package status
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/awslabs/operatorpkg/event"
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -24,19 +25,24 @@ const (
 	MetricLabelName            = "name"
 	MetricLabelConditionType   = "type"
 	MetricLabelConditionStatus = "status"
-	MetricNamespace            = "operator"
-	MetricSubsystem            = "status_condition"
+)
+
+const (
+	MetricNamespace = "operator"
+	MetricSubsystem = "status_condition"
 )
 
 type Controller struct {
 	kubeClient         client.Client
+	eventRecorder      record.EventRecorder
 	forObject          Object
 	observedConditions map[reconcile.Request]ConditionSet
 }
 
-func NewController(client client.Client, forObject Object) *Controller {
+func NewController(client client.Client, forObject Object, eventRecorder record.EventRecorder) *Controller {
 	return &Controller{
 		kubeClient:         client,
+		eventRecorder:      eventRecorder,
 		forObject:          forObject,
 		observedConditions: map[reconcile.Request]ConditionSet{},
 	}
@@ -52,9 +58,10 @@ func (c *Controller) Register(ctx context.Context, m manager.Manager) error {
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	o := c.forObject.DeepCopyObject().(Object)
 
+	gvk := object.GVK(o)
 	objectLabels := prometheus.Labels{
-		MetricLabelGroup:     object.GVK(o).Group,
-		MetricLabelKind:      object.GVK(o).Kind,
+		MetricLabelGroup:     gvk.Group,
+		MetricLabelKind:      gvk.Kind,
 		MetricLabelNamespace: o.GetNamespace(),
 		MetricLabelName:      o.GetName(),
 	}
@@ -64,54 +71,60 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	observedConditions := c.observedConditions[req]
-	c.observedConditions[req] = o.StatusConditions()
-
+	// Detect and record condition statuses
 	for _, condition := range o.GetConditions() {
 		ConditionCount.MustCurryWith(objectLabels).With(prometheus.Labels{
 			MetricLabelConditionType:   string(condition.Type),
 			MetricLabelConditionStatus: string(condition.Status),
 		}).Set(1)
-		// Detect and record status transitions. This approach is best effort,
-		// since we may batch multiple writes within a single reconcile loop.
-		// It's exceedingly difficult to atomically track all changes to an
-		// object, since the Kubernetes is evenutally consistent by design.
-		// Despite this, we can catch the majority of transition by remembering
-		// what we saw last, and reporting observed changes.
-		//
-		// We rejected the alternative of tracking these changes within the
-		// condition library itself, since you cannot guarantee that a
-		// transition made in memory was successfully persisted.
-		//
-		// Automatic monitoring systems must assume that these observations are
-		// lossy, specifically for when a condition transition rapidly. However,
-		// for the common case, we want to alert when a transition took a long
-		// time, and our likelyhood of observing this is much higher.
-		if observedCondition := observedConditions.Get(condition.Type); observedCondition != nil && observedCondition.GetStatus() != condition.GetStatus() {
-			duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
-			log.FromContext(ctx).Info("observed transition",
-				"object", object.GKNN(o),
-				"fromCondition", observedCondition,
-				"toCondition", condition,
-				"duration", duration,
-			)
-			event.FromContext(ctx).Publish(NewStatusConditionTransitionEvent(o, condition))
-			ConditionDuration.MustCurryWith(objectLabels).With(prometheus.Labels{
-				MetricLabelConditionType:   string(observedCondition.Type),
-				MetricLabelConditionStatus: string(observedCondition.Status),
-			}).Observe(float64(duration))
+	}
+
+	// Detect and record status transitions. This approach is best effort,
+	// since we may batch multiple writes within a single reconcile loop.
+	// It's exceedingly difficult to atomically track all changes to an
+	// object, since the Kubernetes is evenutally consistent by design.
+	// Despite this, we can catch the majority of transition by remembering
+	// what we saw last, and reporting observed changes.
+	//
+	// We rejected the alternative of tracking these changes within the
+	// condition library itself, since you cannot guarantee that a
+	// transition made in memory was successfully persisted.
+	//
+	// Automatic monitoring systems must assume that these observations are
+	// lossy, specifically for when a condition transition rapidly. However,
+	// for the common case, we want to alert when a transition took a long
+	// time, and our likelyhood of observing this is much higher.
+	observedConditions := c.observedConditions[req]
+	c.observedConditions[req] = o.StatusConditions()
+	for _, condition := range o.GetConditions() {
+		observedCondition := observedConditions.Get(condition.Type)
+		if observedCondition == nil || observedCondition.GetStatus() == condition.GetStatus() {
+			continue
 		}
+		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
+		log.FromContext(ctx).Info("status condition transitioned",
+			"fromCondition", observedCondition,
+			"toCondition", condition,
+			"duration", duration,
+		)
+		ConditionDuration.MustCurryWith(objectLabels).With(prometheus.Labels{
+			MetricLabelConditionType:   string(observedCondition.Type),
+			MetricLabelConditionStatus: string(observedCondition.Status),
+		}).Observe(float64(duration))
+		message := fmt.Sprintf("Status condition transitioned, %s: %s -> %s", condition.Type, observedCondition.Status, condition.Status)
+		if condition.Reason != "" {
+			message += fmt.Sprintf(", %s", condition.Reason)
+		}
+		if condition.Message != "" {
+			message += fmt.Sprintf(", %s", condition.Message)
+		}
+		c.eventRecorder.Event(o,
+			string(lo.Ternary(condition.Severity == ConditionSeverityInfo || condition.Status == metav1.ConditionTrue, v1.EventTypeNormal, v1.EventTypeWarning)),
+			string(condition.Type),
+			message,
+		)
 	}
 	return reconcile.Result{}, nil
-}
-
-func NewStatusConditionTransitionEvent(object Object, condition Condition) event.Event {
-	return event.Event{
-		InvolvedObject: object,
-		Type:           string(lo.Ternary(condition.Severity == ConditionSeverityInfo && condition.Status == metav1.ConditionFalse, v1.EventTypeNormal, v1.EventTypeWarning)),
-		Reason:         string(condition.Type),
-		Message:        string(condition.Reason),
-	}
 }
 
 // Cardinality is limited to # objects * # conditions * # objectives

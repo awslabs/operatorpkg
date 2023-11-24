@@ -70,7 +70,6 @@ type Condition struct {
 	Message string `json:"message,omitempty" description:"human-readable message indicating details about last transition"`
 }
 
-// IsTrue is true if the condition is True
 func (c *Condition) IsTrue() bool {
 	if c == nil {
 		return false
@@ -78,7 +77,6 @@ func (c *Condition) IsTrue() bool {
 	return c.Status == metav1.ConditionTrue
 }
 
-// IsFalse is true if the condition is False
 func (c *Condition) IsFalse() bool {
 	if c == nil {
 		return false
@@ -86,7 +84,6 @@ func (c *Condition) IsFalse() bool {
 	return c.Status == metav1.ConditionFalse
 }
 
-// IsUnknown is true if the condition is Unknown
 func (c *Condition) IsUnknown() bool {
 	if c == nil {
 		return true
@@ -94,32 +91,9 @@ func (c *Condition) IsUnknown() bool {
 	return c.Status == metav1.ConditionUnknown
 }
 
-func (c *Condition) GetSeverity() ConditionSeverity {
-	if c == nil {
-		return ConditionSeverityError
-	}
-	return c.Severity
-}
-
 func (c *Condition) GetStatus() metav1.ConditionStatus {
 	if c == nil {
 		return metav1.ConditionUnknown
 	}
 	return c.Status
-}
-
-// GetReason returns a nil save string of Reason
-func (c *Condition) GetReason() string {
-	if c == nil {
-		return ""
-	}
-	return c.Reason
-}
-
-// GetMessage returns a nil save string of Message
-func (c *Condition) GetMessage() string {
-	if c == nil {
-		return ""
-	}
-	return c.Message
 }

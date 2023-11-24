@@ -3,13 +3,10 @@ module github.com/awslabs/operatorpkg
 go 1.20
 
 require (
-	dario.cat/mergo v1.0.0
 	github.com/Pallinder/go-randomdata v1.2.0
 	github.com/imdario/mergo v0.3.6
-	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.10
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/client_model v0.4.0
 	github.com/samber/lo v1.38.1

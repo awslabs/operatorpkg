@@ -42,7 +42,7 @@ func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Obje
 			WithTimeout(FastTimeout).
 			WithPolling(FastPolling).
 			Should(BeTrue(), func() string {
-				return fmt.Sprintf("expected %s to be deleted, but it still exists", object.GKNN(o))
+				return fmt.Sprintf("expected %s to be deleted, but it still exists", object.GVKNN(o))
 			})
 	}
 }
