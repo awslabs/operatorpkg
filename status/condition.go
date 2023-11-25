@@ -20,55 +20,14 @@ type ConditionType string
 const (
 	// ConditionReady specifies that the resource is ready.
 	// For long-running resources.
-	ConditionReady ConditionType = "Ready"
+	ConditionReady = "Ready"
 	// ConditionSucceeded specifies that the resource has finished.
 	// For resource which run to completion.
-	ConditionSucceeded ConditionType = "Succeeded"
+	ConditionSucceeded = "Succeeded"
 )
 
-// ConditionSeverity expresses the severity of a Condition Type failing.
-type ConditionSeverity string
-
-const (
-	// ConditionSeverityError specifies that a failure of a condition type
-	// should be viewed as an error.  As "Error" is the default for conditions
-	// we use the empty string (coupled with omitempty) to avoid confusion in
-	// the case where the condition is in state "True" (aka nothing is wrong).
-	ConditionSeverityError ConditionSeverity = ""
-	// ConditionSeverityInfo specifies that a failure of a condition type
-	// should be viewed as purely informational, and that things could still work.
-	ConditionSeverityInfo ConditionSeverity = "Info"
-)
-
-// Condition defines a readiness condition for a resource.
-// See: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-// +k8s:deepcopy-gen=true
-type Condition struct {
-	// Type of condition.
-	// +required
-	Type ConditionType `json:"type" description:"type of status condition"`
-
-	// Status of the condition, one of True, False, Unknown.
-	// +required
-	Status metav1.ConditionStatus `json:"status" description:"status of the condition, one of True, False, Unknown"`
-
-	// Severity with which to treat failures of this type of condition.
-	// When this is not specified, it defaults to Error.
-	// +optional
-	Severity ConditionSeverity `json:"severity,omitempty" description:"how to interpret failures of this condition, one of Error, Warning, Info"`
-
-	// LastTransitionTime is the last time the condition transitioned from one status to another.
-	// +optional
-	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" description:"last time the condition transit from one status to another"`
-
-	// The reason for the condition's last transition.
-	// +optional
-	Reason string `json:"reason,omitempty" description:"one-word CamelCase reason for the condition's last transition"`
-
-	// A human readable message indicating details about the transition.
-	// +optional
-	Message string `json:"message,omitempty" description:"human-readable message indicating details about last transition"`
-}
+// Condition aliases the upstream type and adds additional helper methods
+type Condition metav1.Condition
 
 func (c *Condition) IsTrue() bool {
 	if c == nil {

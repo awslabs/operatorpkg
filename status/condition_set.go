@@ -16,28 +16,28 @@ import (
 // for that resource, which we define to be one of Ready or Succeeded depending
 // on whether it is a Living or Batch process respectively.
 type ConditionTypes struct {
-	root       ConditionType
-	dependents []ConditionType
+	root       string
+	dependents []string
 }
 
 // NewReadyConditions returns a ConditionTypes to hold the conditions for the
 // resource. ConditionReady is used as the root condition.
 // The set of condition types provided are those of the terminal subconditions.
-func NewReadyConditions(d ...ConditionType) ConditionTypes {
+func NewReadyConditions(d ...string) ConditionTypes {
 	return newConditionTypes(ConditionReady, d...)
 }
 
 // NewBatchConditions returns a ConditionTypes to hold the conditions for the
 // batch resource. ConditionSucceeded is used as the root condition.
 // The set of condition types provided are those of the terminal subconditions.
-func NewSucceededConditions(d ...ConditionType) ConditionTypes {
+func NewSucceededConditions(d ...string) ConditionTypes {
 	return newConditionTypes(ConditionSucceeded, d...)
 }
 
-func newConditionTypes(root ConditionType, dependents ...ConditionType) ConditionTypes {
+func newConditionTypes(root string, dependents ...string) ConditionTypes {
 	return ConditionTypes{
 		root:       root,
-		dependents: lo.Reject(lo.Uniq(dependents), func(c ConditionType, _ int) bool { return c == root }),
+		dependents: lo.Reject(lo.Uniq(dependents), func(c string, _ int) bool { return c == root }),
 	}
 }
 
@@ -56,9 +56,8 @@ func (r ConditionTypes) For(object Object) ConditionSet {
 	for _, t := range append(r.dependents, r.root) {
 		if cs.Get(t) == nil {
 			cs.Set(Condition{
-				Type:     t,
-				Status:   lo.Ternary(cs.Root().IsTrue(), metav1.ConditionTrue, metav1.ConditionUnknown),
-				Severity: cs.severity(t),
+				Type:   t,
+				Status: lo.Ternary(cs.Root().IsTrue(), metav1.ConditionTrue, metav1.ConditionUnknown),
 			})
 		}
 	}
@@ -76,7 +75,7 @@ func (c ConditionSet) List() []Condition {
 
 // GetCondition finds and returns the Condition that matches the ConditionType
 // previously set on Conditions.
-func (c ConditionSet) Get(t ConditionType) *Condition {
+func (c ConditionSet) Get(t string) *Condition {
 	if c.object == nil {
 		return nil
 	}
@@ -112,17 +111,13 @@ func (c ConditionSet) Set(cond Condition) {
 	c.object.SetConditions(conditions)
 }
 
-func (c ConditionSet) isNormal(t ConditionType) bool {
+func (c ConditionSet) isNormal(t string) bool {
 	return t == c.root || lo.Contains(c.dependents, t)
-}
-
-func (c ConditionSet) severity(t ConditionType) ConditionSeverity {
-	return lo.Ternary(c.isNormal(t), ConditionSeverityError, ConditionSeverityInfo)
 }
 
 // RemoveCondition removes the non terminal condition that matches the ConditionType
 // Not implemented for terminal conditions
-func (c ConditionSet) Clear(t ConditionType) error {
+func (c ConditionSet) Clear(t string) error {
 	var conditions []Condition
 
 	if c.object == nil {
@@ -151,63 +146,49 @@ func (c ConditionSet) Clear(t ConditionType) error {
 
 // SetTrue sets the status of t to true, and then marks the root condition to
 // true if all other dependents are also true.
-func (c ConditionSet) SetTrue(t ConditionType) {
-	c.SetTrueWithReason(t, "", "")
-	c.recomputeRootCondition(t)
+func (c ConditionSet) SetTrue(conditionType string) {
+	c.SetTrueWithReason(conditionType, conditionType, conditionType)
+	c.recomputeRootCondition(conditionType)
 }
 
 // SetTrueWithReason sets the status of t to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
-func (c ConditionSet) SetTrueWithReason(t ConditionType, reason, message string) {
+func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message string) {
 	c.Set(Condition{
-		Type:     t,
-		Status:   metav1.ConditionTrue,
-		Reason:   reason,
-		Message:  message,
-		Severity: c.severity(t),
+		Type:    conditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
 	})
-	c.recomputeRootCondition(t)
+	c.recomputeRootCondition(conditionType)
 }
 
 // recomputeRootCondition marks the root condition to true if all other dependents are also true.
-func (r ConditionSet) recomputeRootCondition(t ConditionType) {
-	if c := r.findUnrootDependent(); c != nil {
+func (r ConditionSet) recomputeRootCondition(conditionType string) {
+	if c := r.findUnhappyDependent(); c != nil {
 		// Propagate unroot dependent to root condition.
 		r.Set(Condition{
-			Type:     r.root,
-			Status:   c.Status,
-			Reason:   c.Reason,
-			Message:  c.Message,
-			Severity: r.severity(r.root),
+			Type:    r.root,
+			Status:  c.Status,
+			Reason:  c.Reason,
+			Message: c.Message,
 		})
-	} else if t != r.root {
+	} else if conditionType != r.root {
 		// Set the root condition to true.
-		r.Set(Condition{
-			Type:     r.root,
-			Status:   metav1.ConditionTrue,
-			Severity: r.severity(r.root),
-		})
+		r.SetTrue(r.root)
 	}
 }
 
-func (c ConditionSet) findUnrootDependent() *Condition {
+func (c ConditionSet) findUnhappyDependent() *Condition {
 	// This only works if there are dependents.
 	if len(c.dependents) == 0 {
 		return nil
 	}
 
-	// Do not modify the objects condition order.
-	conditions := append([]Condition{}, c.object.GetConditions()...)
-
-	// Filter based on terminal status.
-	n := 0
-	for _, condition := range conditions {
-		if condition.Severity == ConditionSeverityError && condition.Type != c.root {
-			conditions[n] = condition
-			n++
-		}
-	}
-	conditions = conditions[:n]
+	// Get dependent conditions
+	conditions := lo.Filter(c.object.GetConditions(), func(condition Condition, _ int) bool {
+		return lo.Contains(c.dependents, condition.Type)
+	})
 
 	// Sort set conditions by time.
 	sort.Slice(conditions, func(i, j int) bool {
@@ -234,14 +215,13 @@ func (c ConditionSet) findUnrootDependent() *Condition {
 
 // SetUnknown sets the status of t to Unknown and also sets the root condition
 // to Unknown if no other dependent condition is in an error state.
-func (r ConditionSet) SetUnknown(t ConditionType, reason, message string) {
+func (r ConditionSet) SetUnknown(conditionType string, reason, message string) {
 	// set the specified condition
 	r.Set(Condition{
-		Type:     t,
-		Status:   metav1.ConditionUnknown,
-		Reason:   reason,
-		Message:  message,
-		Severity: r.severity(t),
+		Type:    conditionType,
+		Status:  metav1.ConditionUnknown,
+		Reason:  reason,
+		Message: message,
 	})
 
 	// check the dependents.
@@ -257,7 +237,7 @@ func (r ConditionSet) SetUnknown(t ConditionType, reason, message string) {
 			}
 			return
 		}
-		if cond == t {
+		if cond == conditionType {
 			isDependent = true
 		}
 	}
@@ -265,31 +245,29 @@ func (r ConditionSet) SetUnknown(t ConditionType, reason, message string) {
 	if isDependent {
 		// set the root condition, if it is one of our dependent subconditions.
 		r.Set(Condition{
-			Type:     r.root,
-			Status:   metav1.ConditionUnknown,
-			Reason:   reason,
-			Message:  message,
-			Severity: r.severity(r.root),
+			Type:    r.root,
+			Status:  metav1.ConditionUnknown,
+			Reason:  reason,
+			Message: message,
 		})
 	}
 }
 
 // SetFalse sets the status of t and the root condition to False.
-func (r ConditionSet) SetFalse(t ConditionType, reason, message string) {
-	types := []ConditionType{t}
+func (r ConditionSet) SetFalse(conditionType string, reason, message string) {
+	types := []string{conditionType}
 	for _, cond := range r.dependents {
-		if cond == t {
+		if cond == conditionType {
 			types = append(types, r.root)
 		}
 	}
 
 	for _, t := range types {
 		r.Set(Condition{
-			Type:     t,
-			Status:   metav1.ConditionFalse,
-			Reason:   reason,
-			Message:  message,
-			Severity: r.severity(t),
+			Type:    t,
+			Status:  metav1.ConditionFalse,
+			Reason:  reason,
+			Message: message,
 		})
 	}
 }

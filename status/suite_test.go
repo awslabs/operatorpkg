@@ -42,10 +42,10 @@ type TestStatus struct {
 
 const (
 	// Normal Conditions
-	ConditionTypeFoo = status.ConditionType("Foo")
-	ConditionTypeBar = status.ConditionType("Bar")
+	ConditionTypeFoo = "Foo"
+	ConditionTypeBar = "Bar"
 	// Abnormal Conditions
-	ConditionTypeBaz = status.ConditionType("Baz")
+	ConditionTypeBaz = "Baz"
 )
 
 func (t *TestObject) StatusConditions() status.ConditionSet {

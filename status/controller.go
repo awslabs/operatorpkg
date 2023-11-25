@@ -8,7 +8,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -111,18 +110,13 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			MetricLabelConditionType:   string(observedCondition.Type),
 			MetricLabelConditionStatus: string(observedCondition.Status),
 		}).Observe(float64(duration))
-		message := fmt.Sprintf("Status condition transitioned, %s: %s -> %s", condition.Type, observedCondition.Status, condition.Status)
-		if condition.Reason != "" {
-			message += fmt.Sprintf(", %s", condition.Reason)
-		}
-		if condition.Message != "" {
-			message += fmt.Sprintf(", %s", condition.Message)
-		}
-		c.eventRecorder.Event(o,
-			string(lo.Ternary(condition.Severity == ConditionSeverityInfo || condition.Status == metav1.ConditionTrue, v1.EventTypeNormal, v1.EventTypeWarning)),
-			string(condition.Type),
-			message,
-		)
+		c.eventRecorder.Event(o, v1.EventTypeNormal, string(condition.Type), fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s, Message: %s",
+			condition.Type,
+			observedCondition.Status,
+			condition.Status,
+			condition.Reason,
+			condition.Message,
+		))
 	}
 	return reconcile.Result{}, nil
 }

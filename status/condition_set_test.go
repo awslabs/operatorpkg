@@ -25,8 +25,8 @@ var _ = Describe("Conditions", func() {
 		fooCondition := conditions.Get(ConditionTypeFoo)
 		Expect(fooCondition.Type).To(Equal(ConditionTypeFoo))
 		Expect(fooCondition.Status).To(Equal(metav1.ConditionTrue))
-		Expect(fooCondition.Reason).To(Equal(""))
-		Expect(fooCondition.Message).To(Equal(""))
+		Expect(fooCondition.Reason).To(Equal(ConditionTypeFoo))  // default to type
+		Expect(fooCondition.Message).To(Equal(ConditionTypeFoo)) // default to type
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown)) // Root condition is still unknown
 		time.Sleep(1 * time.Nanosecond)
