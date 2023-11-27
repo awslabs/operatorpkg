@@ -6,8 +6,8 @@ import (
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,26 +56,40 @@ func (c *Controller) Register(ctx context.Context, m manager.Manager) error {
 
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	o := c.forObject.DeepCopyObject().(Object)
-
 	gvk := object.GVK(o)
 	objectLabels := prometheus.Labels{
 		MetricLabelGroup:     gvk.Group,
 		MetricLabelKind:      gvk.Kind,
-		MetricLabelNamespace: o.GetNamespace(),
-		MetricLabelName:      o.GetName(),
+		MetricLabelNamespace: req.Namespace,
+		MetricLabelName:      req.Name,
 	}
 
-	ConditionCount.DeletePartialMatch(objectLabels)
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+		if errors.IsNotFound(err) {
+			ConditionCount.DeletePartialMatch(objectLabels)
+			return reconcile.Result{}, nil
+		}
+		return reconcile.Result{}, fmt.Errorf("getting object, %w", err)
 	}
 
-	// Detect and record condition statuses
+	currentConditions := o.StatusConditions()
+	observedConditions := c.observedConditions[req]
+	c.observedConditions[req] = currentConditions
+
+	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
 		ConditionCount.MustCurryWith(objectLabels).With(prometheus.Labels{
 			MetricLabelConditionType:   string(condition.Type),
 			MetricLabelConditionStatus: string(condition.Status),
 		}).Set(1)
+	}
+	for _, observedCondition := range observedConditions.List() {
+		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
+			ConditionCount.MustCurryWith(objectLabels).Delete(prometheus.Labels{
+				MetricLabelConditionType:   string(observedCondition.Type),
+				MetricLabelConditionStatus: string(observedCondition.Status),
+			})
+		}
 	}
 
 	// Detect and record status transitions. This approach is best effort,
@@ -93,9 +107,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// lossy, specifically for when a condition transition rapidly. However,
 	// for the common case, we want to alert when a transition took a long
 	// time, and our likelyhood of observing this is much higher.
-	observedConditions := c.observedConditions[req]
-	c.observedConditions[req] = o.StatusConditions()
-	for _, condition := range o.GetConditions() {
+	for _, condition := range currentConditions.List() {
 		observedCondition := observedConditions.Get(condition.Type)
 		if observedCondition == nil || observedCondition.GetStatus() == condition.GetStatus() {
 			continue
@@ -122,13 +134,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 // Cardinality is limited to # objects * # conditions * # objectives
-var ConditionDuration = prometheus.NewSummaryVec(
-	prometheus.SummaryOpts{
-		Namespace:  MetricNamespace,
-		Subsystem:  MetricSubsystem,
-		Name:       "transition_seconds",
-		Help:       "The amount of time a condition was in a given state before transitioning. e.g. Alarm := P99(Updated=False) > 5 minutes",
-		Objectives: lo.SliceToMap([]float64{0.0, 0.5, 0.9, 0.99, 1.0}, func(key float64) (float64, float64) { return key, 0.01 }),
+var ConditionDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Namespace: MetricNamespace,
+		Subsystem: MetricSubsystem,
+		Name:      "transition_seconds",
+		Help:      "The amount of time a condition was in a given state before transitioning. e.g. Alarm := P99(Updated=False) > 5 minutes",
 	},
 	[]string{
 		MetricLabelGroup,

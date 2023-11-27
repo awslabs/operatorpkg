@@ -5,11 +5,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	prometheus "github.com/prometheus/client_model/go"
 
-	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 var _ = Describe("Conditions", func() {
@@ -59,24 +56,3 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedBarCondition.LastTransitionTime.UnixNano()).ToNot(BeNumerically("==", fooCondition2.LastTransitionTime.UnixNano()))
 	})
 })
-
-// GetMetric attempts to find a metric given name and labels
-// If no metric is found, the *prometheus.Metric will be nil
-func GetMetric(name string, labels ...map[string]string) *prometheus.Metric {
-	family, found := lo.Find(lo.Must(metrics.Registry.Gather()), func(family *prometheus.MetricFamily) bool { return family.GetName() == name })
-	if !found {
-		return nil
-	}
-	for _, m := range family.Metric {
-		temp := lo.Assign(labels...)
-		for _, labelPair := range m.Label {
-			if v, ok := temp[labelPair.GetName()]; ok && v == labelPair.GetValue() {
-				delete(temp, labelPair.GetName())
-			}
-		}
-		if len(temp) == 0 {
-			return m
-		}
-	}
-	return nil
-}
