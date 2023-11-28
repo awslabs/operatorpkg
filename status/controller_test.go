@@ -38,7 +38,7 @@ var _ = Describe("Controller", func() {
 
 		// conditions not set
 		ExpectApplied(ctx, client, testObject)
-		ExpectToReconcile(ctx, controller, testObject)
+		ExpectReconcile(ctx, controller, testObject)
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
@@ -55,7 +55,7 @@ var _ = Describe("Controller", func() {
 		time.Sleep(time.Second * 1)
 		testObject.StatusConditions().SetTrue(ConditionTypeFoo)
 		ExpectApplied(ctx, client, testObject)
-		ExpectToReconcile(ctx, controller, testObject)
+		ExpectReconcile(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -82,7 +82,7 @@ var _ = Describe("Controller", func() {
 		// Transition Bar, root condition should also flip
 		testObject.StatusConditions().SetTrueWithReason(ConditionTypeBar, "reason", "message")
 		ExpectApplied(ctx, client, testObject)
-		ExpectToReconcile(ctx, controller, testObject)
+		ExpectReconcile(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())

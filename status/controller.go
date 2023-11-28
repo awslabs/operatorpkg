@@ -11,7 +11,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -113,11 +112,6 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			continue
 		}
 		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
-		log.FromContext(ctx).Info("status condition transitioned",
-			"fromCondition", observedCondition,
-			"toCondition", condition,
-			"duration", duration,
-		)
 		ConditionDuration.MustCurryWith(objectLabels).With(prometheus.Labels{
 			MetricLabelConditionType:   string(observedCondition.Type),
 			MetricLabelConditionStatus: string(observedCondition.Status),
