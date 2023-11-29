@@ -27,7 +27,7 @@ func NewReadyConditions(d ...string) ConditionTypes {
 	return newConditionTypes(ConditionReady, d...)
 }
 
-// NewBatchConditions returns a ConditionTypes to hold the conditions for the
+// NewSucceededConditions returns a ConditionTypes to hold the conditions for the
 // batch resource. ConditionSucceeded is used as the root condition.
 // The set of condition types provided are those of the terminal subconditions.
 func NewSucceededConditions(d ...string) ConditionTypes {
