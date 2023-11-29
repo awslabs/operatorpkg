@@ -57,15 +57,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	o := c.forObject.DeepCopyObject().(Object)
 	gvk := object.GVK(o)
 	objectLabels := prometheus.Labels{
-		MetricLabelGroup:     gvk.Group,
-		MetricLabelKind:      gvk.Kind,
-		MetricLabelNamespace: req.Namespace,
-		MetricLabelName:      req.Name,
+		MetricLabelGroup: gvk.Group,
+		MetricLabelKind:  gvk.Kind,
 	}
 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
-			ConditionCount.DeletePartialMatch(objectLabels)
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, fmt.Errorf("getting object, %w", err)
@@ -138,8 +135,6 @@ var ConditionDuration = prometheus.NewHistogramVec(
 	[]string{
 		MetricLabelGroup,
 		MetricLabelKind,
-		MetricLabelNamespace,
-		MetricLabelName,
 		MetricLabelConditionType,
 		MetricLabelConditionStatus,
 	},
@@ -156,8 +151,6 @@ var ConditionCount = prometheus.NewGaugeVec(
 	[]string{
 		MetricLabelGroup,
 		MetricLabelKind,
-		MetricLabelNamespace,
-		MetricLabelName,
 		MetricLabelConditionType,
 		MetricLabelConditionStatus,
 	},

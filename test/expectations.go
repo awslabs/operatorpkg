@@ -21,7 +21,7 @@ const (
 	FastPolling = 10 * time.Millisecond
 )
 
-func ExpectReconcile(ctx context.Context, controller reconcile.Reconciler, object client.Object) reconcile.Result {
+func ExpectReconciled(ctx context.Context, controller reconcile.Reconciler, object client.Object) reconcile.Result {
 	GinkgoHelper()
 	result, err := controller.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(object)})
 	Expect(err).ToNot(HaveOccurred())
