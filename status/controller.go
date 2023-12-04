@@ -56,13 +56,15 @@ func (c *Controller) Register(ctx context.Context, m manager.Manager) error {
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	o := c.forObject.DeepCopyObject().(Object)
 	gvk := object.GVK(o)
-	objectLabels := prometheus.Labels{
-		MetricLabelGroup: gvk.Group,
-		MetricLabelKind:  gvk.Kind,
-	}
 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
+			ConditionCount.DeletePartialMatch(prometheus.Labels{
+				MetricLabelGroup:     gvk.Group,
+				MetricLabelKind:      gvk.Kind,
+				MetricLabelNamespace: string(req.Namespace),
+				MetricLabelName:      string(req.Name),
+			})
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, fmt.Errorf("getting object, %w", err)
@@ -74,14 +76,22 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
-		ConditionCount.MustCurryWith(objectLabels).With(prometheus.Labels{
+		ConditionCount.With(prometheus.Labels{
+			MetricLabelGroup:           gvk.Group,
+			MetricLabelKind:            gvk.Kind,
+			MetricLabelNamespace:       string(req.Namespace),
+			MetricLabelName:            string(req.Name),
 			MetricLabelConditionType:   string(condition.Type),
 			MetricLabelConditionStatus: string(condition.Status),
 		}).Set(1)
 	}
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
-			ConditionCount.MustCurryWith(objectLabels).Delete(prometheus.Labels{
+			ConditionCount.Delete(prometheus.Labels{
+				MetricLabelGroup:           gvk.Group,
+				MetricLabelKind:            gvk.Kind,
+				MetricLabelNamespace:       string(req.Namespace),
+				MetricLabelName:            string(req.Name),
 				MetricLabelConditionType:   string(observedCondition.Type),
 				MetricLabelConditionStatus: string(observedCondition.Status),
 			})
@@ -109,7 +119,9 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			continue
 		}
 		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
-		ConditionDuration.MustCurryWith(objectLabels).With(prometheus.Labels{
+		ConditionDuration.With(prometheus.Labels{
+			MetricLabelGroup:           gvk.Group,
+			MetricLabelKind:            gvk.Kind,
 			MetricLabelConditionType:   string(observedCondition.Type),
 			MetricLabelConditionStatus: string(observedCondition.Status),
 		}).Observe(float64(duration))
@@ -149,6 +161,8 @@ var ConditionCount = prometheus.NewGaugeVec(
 		Help:      "The number of an condition for a given object, type and status. e.g. Alarm := Available=False > 0",
 	},
 	[]string{
+		MetricLabelNamespace,
+		MetricLabelName,
 		MetricLabelGroup,
 		MetricLabelKind,
 		MetricLabelConditionType,

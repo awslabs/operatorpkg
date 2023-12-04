@@ -71,3 +71,10 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
 	}
 }
+
+func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Object) {
+	GinkgoHelper()
+	for _, o := range objects {
+		Expect(c.Delete(ctx, o)).To(Succeed())
+	}
+}
