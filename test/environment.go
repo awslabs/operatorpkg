@@ -28,7 +28,6 @@ func NewEnvironment(options ...EnvironmentOption) *Environment {
 	for _, option := range options {
 		option(&environment)
 	}
-
 	config := lo.Must(environment.Start())
 	return &Environment{
 		Client:              lo.Must(client.New(config, client.Options{Scheme: scheme.Scheme})),
