@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 jobs:
-  presubmit:
+  postsubmit:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
