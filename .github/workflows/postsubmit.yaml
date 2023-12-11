@@ -13,4 +13,4 @@ jobs:
         mkdir -p hydrate-goproxy
         cd hydrate-goproxy
         go mod init hydrate-goproxy
-        go get github.com/awslabs/operatorpkg@HEAD
+        go get github.com/awslabs/operatorpkg@${GITHUB_SHA}
