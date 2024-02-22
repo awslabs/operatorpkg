@@ -39,7 +39,7 @@ func GVK(o client.Object) schema.GroupVersionKind {
 	return lo.Must(apiutil.GVKForObject(o, scheme.Scheme))
 }
 
-func Unmarshal[T client.Object](raw []byte) *T {
+func Unmarshal[T any](raw []byte) *T {
 	t := *new(T)
 	lo.Must0(yaml.Unmarshal(raw, &t))
 	return &t
