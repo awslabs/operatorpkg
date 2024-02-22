@@ -4,12 +4,12 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
-	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/yaml"
 )
 
 // GroupVersionKindNamespacedName uniquely identifies an object
