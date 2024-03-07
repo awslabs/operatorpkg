@@ -5,7 +5,8 @@ import (
 	"time"
 
 	"github.com/awslabs/operatorpkg/status"
-	. "github.com/awslabs/operatorpkg/test"
+	"github.com/awslabs/operatorpkg/test"
+	. "github.com/awslabs/operatorpkg/test/expectations"
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,7 +34,7 @@ var _ = Describe("Controller", func() {
 	})
 
 	It("should emit metrics and events on a transition", func() {
-		testObject := Object(&TestObject{})
+		testObject := test.Object(&TestObject{})
 		testObject.StatusConditions() // initialize conditions
 
 		// conditions not set
