@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -91,9 +92,6 @@ func (c ConditionSet) Get(t string) *Condition {
 // Set sets or updates the Condition on Conditions for Condition.Type.
 // If there is an update, Conditions are stored back sorted.
 func (c ConditionSet) Set(condition Condition) {
-	if c.object == nil {
-		return
-	}
 	conditionType := condition.Type
 	var conditions []Condition
 	for _, c := range c.object.GetConditions() {
@@ -112,6 +110,9 @@ func (c ConditionSet) Set(condition Condition) {
 	// Sorted for convenience of the consumer, i.e. kubectl.
 	sort.Slice(conditions, func(i, j int) bool { return conditions[i].Type < conditions[j].Type })
 	c.object.SetConditions(conditions)
+
+	// Recompute the root condition after setting any other condition
+	c.recomputeRootCondition(conditionType)
 }
 
 // RemoveCondition removes the non normal condition that matches the ConditionType
@@ -158,7 +159,6 @@ func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message st
 		Reason:  reason,
 		Message: message,
 	})
-	c.recomputeRootCondition(conditionType)
 }
 
 // SetUnknown sets the status of conditionType to Unknown and also sets the root condition
@@ -171,57 +171,50 @@ func (r ConditionSet) SetUnknown(conditionType string) {
 		Reason:  "AwaitingReconciliation",
 		Message: "object is awaiting reconciliation",
 	})
-	r.recomputeRootCondition(conditionType)
 }
 
 // recomputeRootCondition marks the root condition to true if all other dependents are also true.
 func (r ConditionSet) recomputeRootCondition(conditionType string) {
-	if condition := r.findUnhappyDependent(); condition != nil {
-		// Propagate unroot dependent to root condition.
-		r.Set(Condition{
-			Type:    r.root,
-			Status:  condition.Status,
-			Reason:  condition.Reason,
-			Message: condition.Message,
-		})
-	} else if conditionType != r.root {
-		// Set the root condition to true.
+	if conditionType == r.root {
+		return
+	}
+	if conditions := r.findUnhealthyDependents(); len(conditions) == 0 {
 		r.SetTrue(r.root)
+	} else {
+		r.Set(Condition{
+			Type: r.root,
+			// The root condition is no longer unknown as soon as any are false
+			Status: lo.Ternary(
+				lo.ContainsBy(conditions, func(condition Condition) bool { return condition.IsFalse() }),
+				metav1.ConditionFalse,
+				metav1.ConditionUnknown,
+			),
+			Reason: "UnhealthyDependents",
+			Message: strings.Join(lo.Map(conditions, func(condition Condition, _ int) string {
+				return fmt.Sprintf("%s=%s", condition.Type, condition.Status)
+			}), ", "),
+		})
 	}
 }
 
-func (c ConditionSet) findUnhappyDependent() *Condition {
-	// This only works if there are dependents.
+func (c ConditionSet) findUnhealthyDependents() []Condition {
 	if len(c.dependents) == 0 {
 		return nil
 	}
-
 	// Get dependent conditions
-	conditions := lo.Filter(c.object.GetConditions(), func(condition Condition, _ int) bool {
+	conditions := c.object.GetConditions()
+	conditions = lo.Filter(conditions, func(condition Condition, _ int) bool {
 		return lo.Contains(c.dependents, condition.Type)
+	})
+	conditions = lo.Filter(conditions, func(condition Condition, _ int) bool {
+		return condition.IsFalse() || condition.IsUnknown()
 	})
 
 	// Sort set conditions by time.
 	sort.Slice(conditions, func(i, j int) bool {
 		return conditions[i].LastTransitionTime.After(conditions[j].LastTransitionTime.Time)
 	})
-
-	// First check the conditions with Status == False.
-	if c, found := lo.Find(conditions, func(c Condition) bool { return c.IsFalse() }); found {
-		return &c
-	}
-	// Second check for conditions with Status == Unknown.
-	if c, found := lo.Find(conditions, func(c Condition) bool { return c.IsUnknown() }); found {
-		return &c
-	}
-	// If something was not initialized.
-	if len(c.dependents) > len(conditions) {
-		return &Condition{
-			Status: metav1.ConditionUnknown,
-		}
-	}
-	// All dependents are fine.
-	return nil
+	return conditions
 }
 
 // SetFalse sets the status of t and the root condition to False.
