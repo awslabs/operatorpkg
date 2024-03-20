@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 
-	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
@@ -13,12 +12,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+type Context = context.Context
+
 func New() context.Context {
 	ctx := controllerruntime.SetupSignalHandler()
 	logger := zapr.NewLogger(lo.Must(zap.NewDevelopment()))
 	klog.SetLogger(logger)
 	log.SetLogger(logger)
-	ctx = Into[logr.Logger](ctx, &logger)
+	ctx = Into(ctx, &logger)
 	return ctx
 }
 
