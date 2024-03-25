@@ -91,7 +91,7 @@ func (c ConditionSet) Get(t string) *Condition {
 
 // Set sets or updates the Condition on Conditions for Condition.Type.
 // If there is an update, Conditions are stored back sorted.
-func (c ConditionSet) Set(condition Condition) {
+func (c ConditionSet) Set(condition Condition) (modified bool) {
 	conditionType := condition.Type
 	var conditions []Condition
 	for _, c := range c.object.GetConditions() {
@@ -101,7 +101,7 @@ func (c ConditionSet) Set(condition Condition) {
 			// If we'd only update the LastTransitionTime, then return.
 			condition.LastTransitionTime = c.LastTransitionTime
 			if reflect.DeepEqual(condition, c) {
-				return
+				return false
 			}
 		}
 	}
@@ -113,6 +113,7 @@ func (c ConditionSet) Set(condition Condition) {
 
 	// Recompute the root condition after setting any other condition
 	c.recomputeRootCondition(conditionType)
+	return true
 }
 
 // RemoveCondition removes the non normal condition that matches the ConditionType
@@ -146,14 +147,14 @@ func (c ConditionSet) Clear(t string) error {
 
 // SetTrue sets the status of t to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
-func (c ConditionSet) SetTrue(conditionType string) {
-	c.SetTrueWithReason(conditionType, conditionType, conditionType)
+func (c ConditionSet) SetTrue(conditionType string) (modified bool) {
+	return c.SetTrueWithReason(conditionType, conditionType, conditionType)
 }
 
 // SetTrueWithReason sets the status of t to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
-func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message string) {
-	c.Set(Condition{
+func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message string) (modified bool) {
+	return c.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionTrue,
 		Reason:  reason,
@@ -163,13 +164,23 @@ func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message st
 
 // SetUnknown sets the status of conditionType to Unknown and also sets the root condition
 // to Unknown if no other dependent condition is in an error state.
-func (r ConditionSet) SetUnknown(conditionType string) {
+func (r ConditionSet) SetUnknown(conditionType string) (modified bool) {
 	// set the specified condition
-	r.Set(Condition{
+	return r.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionUnknown,
 		Reason:  "AwaitingReconciliation",
 		Message: "object is awaiting reconciliation",
+	})
+}
+
+// SetFalse sets the status of t and the root condition to False.
+func (r ConditionSet) SetFalse(conditionType string, reason, message string) (modified bool) {
+	return r.Set(Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
 	})
 }
 
@@ -215,23 +226,4 @@ func (c ConditionSet) findUnhealthyDependents() []Condition {
 		return conditions[i].LastTransitionTime.After(conditions[j].LastTransitionTime.Time)
 	})
 	return conditions
-}
-
-// SetFalse sets the status of t and the root condition to False.
-func (r ConditionSet) SetFalse(conditionType string, reason, message string) {
-	types := []string{conditionType}
-	for _, cond := range r.dependents {
-		if cond == conditionType {
-			types = append(types, r.root)
-		}
-	}
-
-	for _, t := range types {
-		r.Set(Condition{
-			Type:    t,
-			Status:  metav1.ConditionFalse,
-			Reason:  reason,
-			Message: message,
-		})
-	}
 }
