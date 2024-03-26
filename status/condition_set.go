@@ -89,6 +89,16 @@ func (c ConditionSet) Get(t string) *Condition {
 	return nil
 }
 
+// True returns true if all condition types are true.
+func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
+	for _, conditionType := range conditionTypes {
+		if !c.Get(conditionType).IsTrue() {
+			return false
+		}
+	}
+	return true
+}
+
 // Set sets or updates the Condition on Conditions for Condition.Type.
 // If there is an update, Conditions are stored back sorted.
 func (c ConditionSet) Set(condition Condition) (modified bool) {
