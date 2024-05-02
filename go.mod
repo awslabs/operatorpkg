@@ -1,8 +1,6 @@
 module github.com/awslabs/operatorpkg
 
-go 1.22
-
-toolchain go1.22.1
+go 1.22.2
 
 require (
 	github.com/Pallinder/go-randomdata v1.2.0
