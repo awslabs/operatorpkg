@@ -20,12 +20,12 @@ func AsReconciler(reconciler Reconciler) reconcile.Reconciler {
 	})
 }
 
-func Source() (source.Source, handler.EventHandler) {
+func Source() source.Source {
 	eventSource := make(chan event.GenericEvent, 1)
 	eventSource <- event.GenericEvent{}
-	return &source.Channel{Source: eventSource}, handler.Funcs{
+	return source.Channel(eventSource, handler.Funcs{
 		GenericFunc: func(_ context.Context, _ event.GenericEvent, queue workqueue.RateLimitingInterface) {
 			queue.Add(reconcile.Request{})
 		},
-	}
+	})
 }
