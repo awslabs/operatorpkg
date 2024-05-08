@@ -24,12 +24,12 @@ import (
 var _ = Describe("Controller", func() {
 	var ctx context.Context
 	var recorder *record.FakeRecorder
-	var controller *status.Controller
+	var controller *status.Controller[*TestObject]
 	var client client.Client
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
 		client = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-		controller = status.NewController(client, &TestObject{}, recorder)
+		controller = status.NewController[*TestObject](client, recorder)
 		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 	})
 
