@@ -66,7 +66,6 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	GinkgoHelper()
 	for _, o := range objects {
 		current := o.DeepCopyObject().(client.Object)
-		statuscopy := o.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
 		// Create or Update
 		if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
 			if errors.IsNotFound(err) {
@@ -78,11 +77,25 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 			o.SetResourceVersion(current.GetResourceVersion())
 			Expect(c.Update(ctx, o)).To(Succeed())
 		}
-		// Update status
-		statuscopy.SetResourceVersion(o.GetResourceVersion())
-		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError(ContainSubstring("not found")))) // Some objects do not have a status
 
 		// Re-get the object to grab the updated spec and status
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
+	}
+}
+
+func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client.Object) {
+	GinkgoHelper()
+	for _, o := range objects {
+		// Previous implementations attempted the following:
+		// 1. Using merge patch, instead
+		// 2. Including this logic in ExpectApplied to simplify test code
+		// The former doesn't work, as merge patches cannot reset
+		// primitives like strings and integers to "" or 0, and CRDs
+		// don't support strategic merge patch. The latter doesn't work
+		// since status must be updated in another call, which can cause
+		// optimistic locking issues if other threads are updating objects
+		// e.g. pod statuses being updated during integration tests.
+		Expect(c.Status().Update(ctx, o.DeepCopyObject().(client.Object))).To(Succeed())
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
 	}
 }
@@ -91,5 +104,6 @@ func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Objec
 	GinkgoHelper()
 	for _, o := range objects {
 		Expect(c.Delete(ctx, o)).To(Succeed())
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Or(Succeed(), MatchError(ContainSubstring("not found"))))
 	}
 }
