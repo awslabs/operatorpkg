@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,31 +31,29 @@ const (
 	MetricSubsystem = "status_condition"
 )
 
-type Controller struct {
+type Controller[T Object] struct {
 	kubeClient         client.Client
 	eventRecorder      record.EventRecorder
-	forObject          Object
 	observedConditions map[reconcile.Request]ConditionSet
 }
 
-func NewController(client client.Client, forObject Object, eventRecorder record.EventRecorder) *Controller {
-	return &Controller{
+func NewController[T Object](client client.Client, eventRecorder record.EventRecorder) *Controller[T] {
+	return &Controller[T]{
 		kubeClient:         client,
 		eventRecorder:      eventRecorder,
-		forObject:          forObject,
 		observedConditions: map[reconcile.Request]ConditionSet{},
 	}
 }
 
-func (c *Controller) Register(ctx context.Context, m manager.Manager) error {
+func (c *Controller[T]) Register(ctx context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
-		For(c.forObject).
+		For(reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)).
 		Named("status").
 		Complete(c)
 }
 
-func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	o := c.forObject.DeepCopyObject().(Object)
+func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	o := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)
 	gvk := object.GVK(o)
 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
