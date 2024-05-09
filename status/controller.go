@@ -3,7 +3,6 @@ package status
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
@@ -47,13 +46,13 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 
 func (c *Controller[T]) Register(ctx context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
-		For(reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)).
+		For(object.New[T]()).
 		Named("status").
 		Complete(c)
 }
 
 func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	o := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)
+	o := object.New[T]()
 	gvk := object.GVK(o)
 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {

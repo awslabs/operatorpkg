@@ -2,6 +2,7 @@ package object
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,6 +38,10 @@ func (gvknn GroupVersionKindNamespacedName) String() string {
 
 func GVK(o client.Object) schema.GroupVersionKind {
 	return lo.Must(apiutil.GVKForObject(o, scheme.Scheme))
+}
+
+func New[T any]() T {
+	return reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)
 }
 
 func Unmarshal[T any](raw []byte) *T {
