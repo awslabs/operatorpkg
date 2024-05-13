@@ -158,7 +158,7 @@ func (c ConditionSet) Clear(t string) error {
 // SetTrue sets the status of t to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
 func (c ConditionSet) SetTrue(conditionType string) (modified bool) {
-	return c.SetTrueWithReason(conditionType, conditionType, conditionType)
+	return c.SetTrueWithReason(conditionType, conditionType, "")
 }
 
 // SetTrueWithReason sets the status of t to true with the reason, and then marks the root condition to
