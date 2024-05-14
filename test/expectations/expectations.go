@@ -86,7 +86,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 
 func ExpectStatusConditions(ctx context.Context, c client.Client, obj status.Object, conditions ...status.Condition) {
 	GinkgoHelper()
-	objStatus := obj.StatusConditions()
+	objStatus := ExpectGet(ctx, c, obj).StatusConditions()
 	for _, cond := range conditions {
 		objCondition := objStatus.Get(cond.Type)
 		Expect(objCondition).ToNot(BeNil())
