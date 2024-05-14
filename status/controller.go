@@ -6,6 +6,7 @@ import (
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
@@ -123,12 +124,12 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelConditionType:   string(observedCondition.Type),
 			MetricLabelConditionStatus: string(observedCondition.Status),
 		}).Observe(float64(duration))
-		c.eventRecorder.Event(o, v1.EventTypeNormal, string(condition.Type), fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s, Message: %s",
+		c.eventRecorder.Event(o, v1.EventTypeNormal, string(condition.Type), fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s%s",
 			condition.Type,
 			observedCondition.Status,
 			condition.Status,
 			condition.Reason,
-			condition.Message,
+			lo.Ternary(condition.Message != "", fmt.Sprintf(", Message: %s", condition.Message), ""),
 		))
 	}
 	return reconcile.Result{}, nil

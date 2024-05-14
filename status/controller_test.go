@@ -79,7 +79,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
-		Expect(recorder.Events).To(Receive(Equal("Normal Foo Status condition transitioned, Type: Foo, Status: Unknown -> True, Reason: Foo, Message: ")))
+		Expect(recorder.Events).To(Receive(Equal("Normal Foo Status condition transitioned, Type: Foo, Status: Unknown -> True, Reason: Foo")))
 
 		// Transition Bar, root condition should also flip
 		testObject.StatusConditions().SetTrueWithReason(ConditionTypeBar, "reason", "message")
@@ -108,7 +108,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 
 		Expect(recorder.Events).To(Receive(Equal("Normal Bar Status condition transitioned, Type: Bar, Status: Unknown -> True, Reason: reason, Message: message")))
-		Expect(recorder.Events).To(Receive(Equal("Normal Ready Status condition transitioned, Type: Ready, Status: Unknown -> True, Reason: Ready, Message: ")))
+		Expect(recorder.Events).To(Receive(Equal("Normal Ready Status condition transitioned, Type: Ready, Status: Unknown -> True, Reason: Ready")))
 
 		// Delete the object, state should clear
 		ExpectDeleted(ctx, client, testObject)
