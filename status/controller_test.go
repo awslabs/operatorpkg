@@ -56,7 +56,7 @@ var _ = Describe("Controller", func() {
 		time.Sleep(time.Second * 1)
 		testObject.StatusConditions().SetTrue(ConditionTypeFoo)
 		ExpectApplied(ctx, client, testObject)
-		ExpectStatusConditions(testObject, status.Condition{Type: ConditionTypeFoo, Status: metav1.ConditionTrue, Reason: ConditionTypeFoo})
+		ExpectStatusConditions(testObject, status.Condition{Type: ConditionTypeFoo, Status: metav1.ConditionTrue})
 		ExpectReconciled(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())

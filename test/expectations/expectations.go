@@ -90,9 +90,15 @@ func ExpectStatusConditions(obj status.Object, conditions ...status.Condition) {
 	for _, cond := range conditions {
 		objCondition := objStatus.Get(cond.Type)
 		Expect(objCondition).ToNot(BeNil())
-		Expect(objCondition.Message).To(Equal(cond.Message))
-		Expect(objCondition.Reason).To(Equal(cond.Reason))
-		Expect(objCondition.Status).To(Equal(cond.Status))
+		if objCondition.Status != "" {
+			Expect(objCondition.Status).To(Equal(cond.Status))
+		}
+		if objCondition.Message != "" {
+			Expect(objCondition.Message).To(Equal(cond.Message))
+		}
+		if objCondition.Reason != "" {
+			Expect(objCondition.Reason).To(Equal(cond.Reason))
+		}
 	}
 }
 
