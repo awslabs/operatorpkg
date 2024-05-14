@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awslabs/operatorpkg/object"
+	"github.com/awslabs/operatorpkg/status"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -80,6 +81,24 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 
 		// Re-get the object to grab the updated spec and status
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
+	}
+}
+
+func ExpectStatusConditions(obj status.Object, conditions ...status.Condition) {
+	GinkgoHelper()
+	objStatus := obj.StatusConditions()
+	for _, cond := range conditions {
+		objCondition := objStatus.Get(cond.Type)
+		Expect(objCondition).ToNot(BeNil())
+		if cond.Status != "" {
+			Expect(objCondition.Status).To(Equal(cond.Status))
+		}
+		if cond.Message != "" {
+			Expect(objCondition.Message).To(Equal(cond.Message))
+		}
+		if cond.Reason != "" {
+			Expect(objCondition.Reason).To(Equal(cond.Reason))
+		}
 	}
 }
 
