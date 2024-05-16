@@ -22,15 +22,17 @@ const (
 	FastPolling = 10 * time.Millisecond
 )
 
-func ExpectObjectReconciled[T client.Object](ctx context.Context, reconciler reconcile.ObjectReconciler[T], object T) reconcile.Result {
+func ExpectObjectReconciled[T client.Object](ctx context.Context, client client.Client, reconciler reconcile.ObjectReconciler[T], object T) reconcile.Result {
 	GinkgoHelper()
+	ExpectGet(ctx, client, object)
 	result, err := reconciler.Reconcile(ctx, object)
 	Expect(err).ToNot(HaveOccurred())
 	return result
 }
 
-func ExpectObjectReconcileFailed[T client.Object](ctx context.Context, reconciler reconcile.ObjectReconciler[T], object T) error {
+func ExpectObjectReconcileFailed[T client.Object](ctx context.Context, client client.Client, reconciler reconcile.ObjectReconciler[T], object T) error {
 	GinkgoHelper()
+	ExpectGet(ctx, client, object)
 	_, err := reconciler.Reconcile(ctx, object)
 	Expect(err).To(HaveOccurred())
 	return err
