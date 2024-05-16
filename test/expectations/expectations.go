@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/awslabs/operatorpkg/object"
@@ -44,11 +43,9 @@ func ExpectReconciled(ctx context.Context, reconciler reconcile.Reconciler, obje
 	return result
 }
 
-func ExpectGet[T client.Object](ctx context.Context, c client.Client, obj T) T {
+func ExpectGet[T client.Object](ctx context.Context, c client.Client, obj T) {
 	GinkgoHelper()
-	resp := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)
-	Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), resp)).To(Succeed())
-	return resp
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
 }
 
 func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Object) {
@@ -80,7 +77,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 		}
 
 		// Re-get the object to grab the updated spec and status
-		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
+		ExpectGet(ctx, c, o)
 	}
 }
 
@@ -115,7 +112,7 @@ func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client
 		// optimistic locking issues if other threads are updating objects
 		// e.g. pod statuses being updated during integration tests.
 		Expect(c.Status().Update(ctx, o.DeepCopyObject().(client.Object))).To(Succeed())
-		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
+		ExpectGet(ctx, c, o)
 	}
 }
 
