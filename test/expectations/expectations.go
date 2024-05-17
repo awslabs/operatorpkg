@@ -3,12 +3,15 @@ package test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/awslabs/operatorpkg/status"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -128,4 +131,23 @@ func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Objec
 		Expect(c.Delete(ctx, o)).To(Succeed())
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Or(Succeed(), MatchError(ContainSubstring("not found"))))
 	}
+}
+
+func ExpectCleanedUp(ctx context.Context, c client.Client, objects ...client.Object) {
+	wg := sync.WaitGroup{}
+	// Remove objects
+	namespaces := &v1.NamespaceList{}
+	Expect(c.List(ctx, namespaces)).To(Succeed())
+	for _, object := range objects {
+		for _, namespace := range namespaces.Items {
+			wg.Add(1)
+			go func(object client.Object, namespace string) {
+				defer wg.Done()
+				defer GinkgoRecover()
+				Expect(c.DeleteAllOf(ctx, object, client.InNamespace(namespace),
+					&client.DeleteAllOfOptions{DeleteOptions: client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}})).ToNot(HaveOccurred())
+			}(object, namespace.Name)
+		}
+	}
+	wg.Wait()
 }
