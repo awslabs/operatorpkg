@@ -81,22 +81,34 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
-func ExpectStatusConditions(obj status.Object, conditions ...status.Condition) {
+func ExpectStatusConditions(ctx context.Context, c client.Client, obj status.Object, conditions ...status.Condition) {
 	GinkgoHelper()
-	objStatus := obj.StatusConditions()
-	for _, cond := range conditions {
-		objCondition := objStatus.Get(cond.Type)
-		Expect(objCondition).ToNot(BeNil())
-		if cond.Status != "" {
-			Expect(objCondition.Status).To(Equal(cond.Status))
+	Eventually(func() error {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+			return fmt.Errorf("getting %s: %w", obj.GetObjectKind().GroupVersionKind().GroupKind(), err)
 		}
-		if cond.Message != "" {
-			Expect(objCondition.Message).To(Equal(cond.Message))
+		objStatus := obj.StatusConditions()
+		for _, cond := range conditions {
+			objCondition := objStatus.Get(cond.Type)
+			if objCondition == nil {
+				return fmt.Errorf("condition %s does not exist", cond.Type)
+			}
+			if cond.Status != "" && objCondition.Status != cond.Status {
+				return fmt.Errorf("status mismatch (got %s, expected %s)", objCondition.Status, cond.Status)
+			}
+			if cond.Message != "" && objCondition.Message != cond.Message {
+				return fmt.Errorf("message mismatch (got %s, expected %s)", objCondition.Message, cond.Message)
+			}
+			if cond.Reason != "" && objCondition.Reason != cond.Reason {
+				return fmt.Errorf("reason mismatch (Got %s, expected %s)", objCondition.Reason, cond.Reason)
+			}
 		}
-		if cond.Reason != "" {
-			Expect(objCondition.Reason).To(Equal(cond.Reason))
-		}
-	}
+		return nil
+	}).
+		WithTimeout(FastTimeout).
+		WithPolling(FastPolling).
+		Should(BeNil())
+
 }
 
 func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client.Object) {
