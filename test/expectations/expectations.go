@@ -94,13 +94,13 @@ func ExpectStatusConditions(ctx context.Context, c client.Client, obj status.Obj
 				return fmt.Errorf("condition %s does not exist", cond.Type)
 			}
 			if cond.Status != "" && objCondition.Status != cond.Status {
-				return fmt.Errorf("status mismatch (got %s, expected %s)", objCondition.Status, cond.Status)
+				return fmt.Errorf("condition %s, status mismatch (got %s, expected %s)", objCondition.Type, objCondition.Status, cond.Status)
 			}
 			if cond.Message != "" && objCondition.Message != cond.Message {
-				return fmt.Errorf("message mismatch (got %s, expected %s)", objCondition.Message, cond.Message)
+				return fmt.Errorf("condition %s, message mismatch (got %s, expected %s)", objCondition.Type, objCondition.Message, cond.Message)
 			}
 			if cond.Reason != "" && objCondition.Reason != cond.Reason {
-				return fmt.Errorf("reason mismatch (Got %s, expected %s)", objCondition.Reason, cond.Reason)
+				return fmt.Errorf("condition %s, reason mismatch (got %s, expected %s)", objCondition.Type, objCondition.Reason, cond.Reason)
 			}
 		}
 		return nil
