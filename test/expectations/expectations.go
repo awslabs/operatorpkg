@@ -81,34 +81,28 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
-func ExpectStatusConditions(ctx context.Context, c client.Client, obj status.Object, conditions ...status.Condition) {
-	GinkgoHelper()
-	Eventually(func() error {
-		if err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
-			return fmt.Errorf("getting %s: %w", obj.GetObjectKind().GroupVersionKind().GroupKind(), err)
-		}
+func EventuallyExpectStatusConditions(ctx context.Context, c client.Client, obj status.Object, timeout time.Duration, conditions ...status.Condition) {
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(BeNil())
 		objStatus := obj.StatusConditions()
 		for _, cond := range conditions {
 			objCondition := objStatus.Get(cond.Type)
-			if objCondition == nil {
-				return fmt.Errorf("condition %s does not exist", cond.Type)
+			g.Expect(objCondition).ToNot(BeNil())
+			if cond.Status != "" {
+				g.Expect(objCondition.Status).To(Equal(cond.Status))
 			}
-			if cond.Status != "" && objCondition.Status != cond.Status {
-				return fmt.Errorf("condition %s, status mismatch (got %s, expected %s)", objCondition.Type, objCondition.Status, cond.Status)
+			if cond.Message != "" {
+				g.Expect(objCondition.Message).To(Equal(cond.Message))
 			}
-			if cond.Message != "" && objCondition.Message != cond.Message {
-				return fmt.Errorf("condition %s, message mismatch (got %s, expected %s)", objCondition.Type, objCondition.Message, cond.Message)
-			}
-			if cond.Reason != "" && objCondition.Reason != cond.Reason {
-				return fmt.Errorf("condition %s, reason mismatch (got %s, expected %s)", objCondition.Type, objCondition.Reason, cond.Reason)
+			if cond.Reason != "" {
+				g.Expect(objCondition.Reason).To(Equal(cond.Reason))
 			}
 		}
-		return nil
 	}).
-		WithTimeout(FastTimeout).
-		WithPolling(FastPolling).
-		Should(BeNil())
-
+		WithTimeout(timeout).
+		// each polling interval
+		WithPolling(timeout / 20).
+		Should(Succeed())
 }
 
 func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client.Object) {
