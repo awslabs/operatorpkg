@@ -81,7 +81,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
-func EventuallyExpectStatusConditions(ctx context.Context, c client.Client, obj status.Object, timeout time.Duration, conditions ...status.Condition) {
+func ExpectStatusConditions(ctx context.Context, c client.Client, timeout time.Duration, obj status.Object, conditions ...status.Condition) {
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(BeNil())
 		objStatus := obj.StatusConditions()
