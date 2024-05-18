@@ -81,22 +81,28 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
-func ExpectStatusConditions(obj status.Object, conditions ...status.Condition) {
-	GinkgoHelper()
-	objStatus := obj.StatusConditions()
-	for _, cond := range conditions {
-		objCondition := objStatus.Get(cond.Type)
-		Expect(objCondition).ToNot(BeNil())
-		if cond.Status != "" {
-			Expect(objCondition.Status).To(Equal(cond.Status))
+func ExpectStatusConditions(ctx context.Context, c client.Client, timeout time.Duration, obj status.Object, conditions ...status.Condition) {
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(BeNil())
+		objStatus := obj.StatusConditions()
+		for _, cond := range conditions {
+			objCondition := objStatus.Get(cond.Type)
+			g.Expect(objCondition).ToNot(BeNil())
+			if cond.Status != "" {
+				g.Expect(objCondition.Status).To(Equal(cond.Status))
+			}
+			if cond.Message != "" {
+				g.Expect(objCondition.Message).To(Equal(cond.Message))
+			}
+			if cond.Reason != "" {
+				g.Expect(objCondition.Reason).To(Equal(cond.Reason))
+			}
 		}
-		if cond.Message != "" {
-			Expect(objCondition.Message).To(Equal(cond.Message))
-		}
-		if cond.Reason != "" {
-			Expect(objCondition.Reason).To(Equal(cond.Reason))
-		}
-	}
+	}).
+		WithTimeout(timeout).
+		// each polling interval
+		WithPolling(timeout / 20).
+		Should(Succeed())
 }
 
 func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client.Object) {
