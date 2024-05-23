@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -10,9 +11,12 @@ import (
 	"github.com/awslabs/operatorpkg/status"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -24,18 +28,18 @@ const (
 	FastPolling = 10 * time.Millisecond
 )
 
-func ExpectObjectReconciled[T client.Object](ctx context.Context, c client.Client, reconciler reconcile.ObjectReconciler[T], object T) reconcile.Result {
+func ExpectObjectReconciled[T client.Object](ctx context.Context, c client.Client, reconciler reconcile.ObjectReconciler[T], object T) types.Assertion {
 	GinkgoHelper()
 	result, err := reconcile.AsReconciler(c, reconciler).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(object)})
 	Expect(err).ToNot(HaveOccurred())
-	return result
+	return Expect(result)
 }
 
-func ExpectObjectReconcileFailed[T client.Object](ctx context.Context, c client.Client, reconciler reconcile.ObjectReconciler[T], object T) error {
+func ExpectObjectReconcileFailed[T client.Object](ctx context.Context, c client.Client, reconciler reconcile.ObjectReconciler[T], object T) types.Assertion {
 	GinkgoHelper()
 	_, err := reconcile.AsReconciler(c, reconciler).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(object)})
 	Expect(err).To(HaveOccurred())
-	return err
+	return Expect(err)
 }
 
 // Deprecated: Use the more modern ExpectObjectReconciled and reconcile.AsReconciler instead
@@ -46,9 +50,10 @@ func ExpectReconciled(ctx context.Context, reconciler reconcile.Reconciler, obje
 	return result
 }
 
-func ExpectGet[T client.Object](ctx context.Context, c client.Client, obj T) {
+func ExpectObject[T client.Object](ctx context.Context, c client.Client, obj T) types.Assertion {
 	GinkgoHelper()
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
+	return Expect(obj)
 }
 
 func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Object) {
@@ -80,7 +85,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 		}
 
 		// Re-get the object to grab the updated spec and status
-		ExpectGet(ctx, c, o)
+		ExpectObject(ctx, c, o)
 	}
 }
 
@@ -121,7 +126,7 @@ func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client
 		// optimistic locking issues if other threads are updating objects
 		// e.g. pod statuses being updated during integration tests.
 		Expect(c.Status().Update(ctx, o.DeepCopyObject().(client.Object))).To(Succeed())
-		ExpectGet(ctx, c, o)
+		ExpectObject(ctx, c, o)
 	}
 }
 
@@ -133,20 +138,34 @@ func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
-func ExpectCleanedUp(ctx context.Context, c client.Client, objects ...client.Object) {
+func ExpectCleanedUp(ctx context.Context, c client.Client, objectLists ...client.ObjectList) {
 	wg := sync.WaitGroup{}
-	// Remove objects
 	namespaces := &v1.NamespaceList{}
 	Expect(c.List(ctx, namespaces)).To(Succeed())
-	for _, object := range objects {
+	for _, objectList := range objectLists {
 		for _, namespace := range namespaces.Items {
 			wg.Add(1)
-			go func(object client.Object, namespace string) {
-				defer wg.Done()
+			go func(objectList client.ObjectList, namespace string) {
 				defer GinkgoRecover()
-				Expect(c.DeleteAllOf(ctx, object, client.InNamespace(namespace),
-					&client.DeleteAllOfOptions{DeleteOptions: client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}})).ToNot(HaveOccurred())
-			}(object, namespace.Name)
+				defer wg.Done()
+
+				unstructuredList := &unstructured.UnstructuredList{}
+				unstructuredList.UnmarshalJSON(lo.Must(json.Marshal(objectList)))
+				unstructuredList.SetAPIVersion(object.GVK(objectList).GroupVersion().String())
+				unstructuredList.SetKind(object.GVK(objectList).Kind)
+
+				Expect(c.List(ctx, unstructuredList)).To(Succeed())
+				unstructuredList.EachListItem(func(o runtime.Object) error {
+					o.(client.Object).SetFinalizers([]string{})
+					if err := c.Update(ctx, o.(client.Object)); err != nil {
+						return err
+					}
+					if err := c.Delete(ctx, o.(client.Object)); err != nil {
+						return err
+					}
+					return nil
+				})
+			}(objectList, namespace.Name)
 		}
 	}
 	wg.Wait()

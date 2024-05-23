@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/samber/lo"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -36,7 +37,7 @@ func (gvknn GroupVersionKindNamespacedName) String() string {
 	return str
 }
 
-func GVK(o client.Object) schema.GroupVersionKind {
+func GVK(o runtime.Object) schema.GroupVersionKind {
 	return lo.Must(apiutil.GVKForObject(o, scheme.Scheme))
 }
 
