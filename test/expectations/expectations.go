@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/awslabs/operatorpkg/object"
+	"github.com/awslabs/operatorpkg/singleton"
 	"github.com/awslabs/operatorpkg/status"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -40,6 +41,20 @@ func ExpectObjectReconcileFailed[T client.Object](ctx context.Context, c client.
 	_, err := reconcile.AsReconciler(c, reconciler).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(object)})
 	Expect(err).To(HaveOccurred())
 	return Expect(err)
+}
+
+func ExpectSingletonReconciled(ctx context.Context, reconciler singleton.Reconciler) reconcile.Result {
+	GinkgoHelper()
+	result, err := singleton.AsReconciler(reconciler).Reconcile(ctx, reconcile.Request{})
+	Expect(err).ToNot(HaveOccurred())
+	return result
+}
+
+func ExpectSingletonReconcileFailed(ctx context.Context, reconciler singleton.Reconciler) error {
+	GinkgoHelper()
+	_, err := singleton.AsReconciler(reconciler).Reconcile(ctx, reconcile.Request{})
+	Expect(err).To(HaveOccurred())
+	return err
 }
 
 // Deprecated: Use the more modern ExpectObjectReconciled and reconcile.AsReconciler instead
