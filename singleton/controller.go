@@ -2,12 +2,19 @@ package singleton
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+)
+
+const (
+	// RequeueImmediately is a constant that allows for immediate RequeueAfter when you want to run your
+	// singleton controller as hot as possible in a fast requeuing loop
+	RequeueImmediately = 1 * time.Nanosecond
 )
 
 type Reconciler interface {
