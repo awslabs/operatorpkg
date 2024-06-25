@@ -1,6 +1,8 @@
 package status_test
 
 import (
+	"github.com/awslabs/operatorpkg/status"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -105,4 +107,63 @@ var _ = Describe("Conditions", func() {
 		Expect(testObject.StatusConditions().IsTrue(ConditionTypeFoo, ConditionTypeBaz)).To(BeTrue())
 		Expect(testObject.StatusConditions().IsTrue(ConditionTypeFoo, ConditionTypeBar, ConditionTypeBaz)).To(BeTrue())
 	})
+	It("should return nil when status conditions are not found on the expected path", func() {
+		testObject := &unstructured.Unstructured{Object: map[string]interface{}{
+			"invalid": map[string]interface{}{
+				"invalid": "invalid",
+			},
+		}}
+		obj, err := status.FromUnstructured(testObject)
+		Expect(obj).To(BeNil())
+		Expect(err).To(HaveOccurred())
+	})
+	It("should validate status condition on unstructured object status is false", func() {
+		conditionObj, err := status.FromUnstructured(createUnstructuredStatusConditions("False"))
+		Expect(err).To(BeNil())
+		Expect(conditionObj).ToNot(BeNil())
+		Expect(conditionObj.StatusConditions().IsTrue(status.ConditionReady)).To(BeFalse())
+	})
+	It("should validate status condition on unstructured object status is true", func() {
+		conditionObj, err := status.FromUnstructured(createUnstructuredStatusConditions("True"))
+		Expect(err).To(BeNil())
+		Expect(conditionObj).ToNot(BeNil())
+		Expect(conditionObj.StatusConditions().IsTrue(status.ConditionReady)).To(BeTrue())
+	})
+	It("should set condition on unstructured object", func() {
+		testObject := &unstructured.Unstructured{Object: map[string]interface{}{
+			"status": map[string]interface{}{
+				"conditions": []interface{}{},
+			},
+		}}
+		conditions := []status.Condition{
+			{
+				Type:    status.ConditionSucceeded,
+				Status:  metav1.ConditionFalse,
+				Reason:  "reason",
+				Message: "message",
+			},
+		}
+		conditionObj, err := status.FromUnstructured(testObject)
+		Expect(err).ToNot(HaveOccurred())
+		conditionObj.SetConditions(conditions)
+		c, found, err := unstructured.NestedSlice(testObject.Object, "status", "conditions")
+		Expect(err).To(BeNil())
+		Expect(found).To(BeTrue())
+		Expect(len(c)).To(BeEquivalentTo(1))
+	})
 })
+
+func createUnstructuredStatusConditions(status string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  status,
+					"message": "message",
+					"reason":  "reason",
+				},
+			},
+		},
+	}}
+}
