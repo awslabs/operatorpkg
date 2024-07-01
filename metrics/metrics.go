@@ -105,8 +105,8 @@ func parsePath(path string) *pathData {
 	if len(parts) < groupIdx+3 {
 		return nil
 	}
-	// This resource is namespaced
-	if parts[groupIdx+2] == "namespaces" {
+	// This resource is namespaced and the resource is not the namespace
+	if parts[groupIdx+2] == "namespaces" && len(parts) > groupIdx+4 {
 		versionIdx = groupIdx + 1
 		kindIdx = versionIdx + 3
 	} else {
