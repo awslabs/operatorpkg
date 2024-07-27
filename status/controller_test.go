@@ -40,16 +40,34 @@ var _ = Describe("Controller", func() {
 		// conditions not set
 		ExpectApplied(ctx, client, testObject)
 		ExpectReconciled(ctx, controller, testObject)
+
+		// Ready Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Foo Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Bar Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+
 		Expect(GetMetric("operator_status_condition_transition_seconds")).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total")).To(BeNil())
+
 		Eventually(recorder.Events).Should(BeEmpty())
 
 		// Transition Foo
@@ -59,15 +77,38 @@ var _ = Describe("Controller", func() {
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeFoo, Status: metav1.ConditionTrue})
 
+		// Ready Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Foo Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+
+		// Bar Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -79,6 +120,16 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+
 		Expect(recorder.Events).To(Receive(Equal("Normal Foo Status condition transitioned, Type: Foo, Status: Unknown -> True, Reason: Foo")))
 
 		// Transition Bar, root condition should also flip
@@ -87,15 +138,71 @@ var _ = Describe("Controller", func() {
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeBar, Status: metav1.ConditionTrue, Reason: "reason", Message: "message"})
 
+		// Ready Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+
+		// Foo Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+
+		// Bar Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+
+		// Ready Condition
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+
+		// Foo Condition
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+
+		// Bar Condition
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -107,6 +214,16 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+
 		Expect(recorder.Events).To(Receive(Equal("Normal Bar Status condition transitioned, Type: Bar, Status: Unknown -> True, Reason: reason, Message: message")))
 		Expect(recorder.Events).To(Receive(Equal("Normal Ready Status condition transitioned, Type: Ready, Status: Unknown -> True, Reason: Ready")))
 
@@ -114,15 +231,38 @@ var _ = Describe("Controller", func() {
 		ExpectDeleted(ctx, client, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
+		// Ready Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+
+		// Foo Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+
+		// Bar Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_last_transition_time_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 	})
 })
 
