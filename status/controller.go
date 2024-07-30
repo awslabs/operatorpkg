@@ -26,6 +26,7 @@ const (
 	MetricLabelName            = "name"
 	MetricLabelConditionType   = "type"
 	MetricLabelConditionStatus = "status"
+	MetricLabelConditionReason = "reason"
 )
 
 const (
@@ -91,6 +92,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelName:            req.Name,
 			MetricLabelConditionType:   condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
+			MetricLabelConditionReason: condition.Reason,
 		}).Set(1)
 		ConditionCurrentStatusSeconds.With(prometheus.Labels{
 			MetricLabelGroup:           gvk.Group,
@@ -99,6 +101,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelName:            req.Name,
 			MetricLabelConditionType:   condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
+			MetricLabelConditionReason: condition.Reason,
 		}).Set(time.Since(condition.LastTransitionTime.Time).Seconds())
 	}
 	for _, observedCondition := range observedConditions.List() {
@@ -110,6 +113,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 				MetricLabelName:            req.Name,
 				MetricLabelConditionType:   observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
+				MetricLabelConditionReason: observedCondition.Reason,
 			})
 			ConditionCurrentStatusSeconds.Delete(prometheus.Labels{
 				MetricLabelGroup:           gvk.Group,
@@ -118,6 +122,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 				MetricLabelName:            req.Name,
 				MetricLabelConditionType:   observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
+				MetricLabelConditionReason: observedCondition.Reason,
 			})
 		}
 	}
@@ -148,6 +153,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelKind:            gvk.Kind,
 			MetricLabelConditionType:   condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
+			MetricLabelConditionReason: condition.Reason,
 		}).Inc()
 		if observedCondition == nil {
 			continue
@@ -201,6 +207,7 @@ var ConditionCount = prometheus.NewGaugeVec(
 		MetricLabelKind,
 		MetricLabelConditionType,
 		MetricLabelConditionStatus,
+		MetricLabelConditionReason,
 	},
 )
 
@@ -221,6 +228,7 @@ var ConditionCurrentStatusSeconds = prometheus.NewGaugeVec(
 		MetricLabelKind,
 		MetricLabelConditionType,
 		MetricLabelConditionStatus,
+		MetricLabelConditionReason,
 	},
 )
 
@@ -237,6 +245,7 @@ var ConditionTransitionsTotal = prometheus.NewCounterVec(
 		MetricLabelKind,
 		MetricLabelConditionType,
 		MetricLabelConditionStatus,
+		MetricLabelConditionReason,
 	},
 )
 

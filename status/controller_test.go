@@ -228,6 +228,46 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 	})
+	It("should emit transition total metrics for abnormal conditions", func() {
+		testObject := test.Object(&TestObject{})
+		testObject.StatusConditions() // initialize conditions
+
+		// conditions not set
+		ExpectApplied(ctx, client, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// set the bar condition and transition it to true
+		testObject.StatusConditions().SetTrue(ConditionTypeBaz)
+
+		ExpectApplied(ctx, client, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeBaz, Status: metav1.ConditionTrue, Reason: ConditionTypeBaz, Message: ""})
+
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
+
+		// set the bar condition and transition it to false
+		testObject.StatusConditions().SetFalse(ConditionTypeBaz, "reason", "message")
+
+		ExpectApplied(ctx, client, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeBaz, Status: metav1.ConditionFalse, Reason: "reason", Message: "message"})
+
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
+
+		// clear the condition and don't expect the metrics to change
+		_ = testObject.StatusConditions().Clear(ConditionTypeBaz)
+
+		ExpectApplied(ctx, client, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
+	})
 })
 
 // GetMetric attempts to find a metric given name and labels
