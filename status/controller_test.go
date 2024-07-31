@@ -2,6 +2,7 @@ package status_test
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/awslabs/operatorpkg/status"
@@ -25,11 +26,11 @@ var _ = Describe("Controller", func() {
 	var ctx context.Context
 	var recorder *record.FakeRecorder
 	var controller *status.Controller[*TestObject]
-	var client client.Client
+	var kubeClient client.Client
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
-		client = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-		controller = status.NewController[*TestObject](client, recorder)
+		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		controller = status.NewController[*TestObject](kubeClient, recorder)
 		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 	})
 
@@ -38,7 +39,7 @@ var _ = Describe("Controller", func() {
 		testObject.StatusConditions() // initialize conditions
 
 		// conditions not set
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
 		// Ready Condition
@@ -73,9 +74,9 @@ var _ = Describe("Controller", func() {
 		// Transition Foo
 		time.Sleep(time.Second * 1)
 		testObject.StatusConditions().SetTrue(ConditionTypeFoo)
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeFoo, Status: metav1.ConditionTrue})
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: ConditionTypeFoo, Status: metav1.ConditionTrue})
 
 		// Ready Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
@@ -125,9 +126,9 @@ var _ = Describe("Controller", func() {
 
 		// Transition Bar, root condition should also flip
 		testObject.StatusConditions().SetTrueWithReason(ConditionTypeBar, "reason", "message")
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeBar, Status: metav1.ConditionTrue, Reason: "reason", Message: "message"})
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: ConditionTypeBar, Status: metav1.ConditionTrue, Reason: "reason", Message: "message"})
 
 		// Ready Condition
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
@@ -201,7 +202,7 @@ var _ = Describe("Controller", func() {
 		Expect(recorder.Events).To(Receive(Equal("Normal Ready Status condition transitioned, Type: Ready, Status: Unknown -> True, Reason: Ready")))
 
 		// Delete the object, state should clear
-		ExpectDeleted(ctx, client, testObject)
+		ExpectDeleted(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
 		// Ready Condition
@@ -233,15 +234,15 @@ var _ = Describe("Controller", func() {
 		testObject.StatusConditions() // initialize conditions
 
 		// conditions not set
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
-		// set the bar condition and transition it to true
+		// set the baz condition and transition it to true
 		testObject.StatusConditions().SetTrue(ConditionTypeBaz)
 
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeBaz, Status: metav1.ConditionTrue, Reason: ConditionTypeBaz, Message: ""})
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: ConditionTypeBaz, Status: metav1.ConditionTrue, Reason: ConditionTypeBaz, Message: ""})
 
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse))).To(BeNil())
@@ -250,9 +251,9 @@ var _ = Describe("Controller", func() {
 		// set the bar condition and transition it to false
 		testObject.StatusConditions().SetFalse(ConditionTypeBaz, "reason", "message")
 
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-		ExpectStatusConditions(ctx, client, FastTimeout, testObject, status.Condition{Type: ConditionTypeBaz, Status: metav1.ConditionFalse, Reason: "reason", Message: "message"})
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: ConditionTypeBaz, Status: metav1.ConditionFalse, Reason: "reason", Message: "message"})
 
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
@@ -261,12 +262,51 @@ var _ = Describe("Controller", func() {
 		// clear the condition and don't expect the metrics to change
 		_ = testObject.StatusConditions().Clear(ConditionTypeBaz)
 
-		ExpectApplied(ctx, client, testObject)
+		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
+	})
+	It("should not race when reconciling status conditions simultaneously", func() {
+		var objs []*TestObject
+		for range 100 {
+			testObject := test.Object(&TestObject{})
+			testObject.StatusConditions() // initialize conditions
+			// conditions not set
+			ExpectApplied(ctx, kubeClient, testObject)
+			objs = append(objs, testObject)
+		}
+
+		// Run 100 object reconciles at once to attempt to trigger a data raceg
+		var wg sync.WaitGroup
+		for _, obj := range objs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer GinkgoRecover()
+
+				ExpectReconciled(ctx, controller, obj)
+			}()
+		}
+
+		for _, obj := range objs {
+			// set the baz condition and transition it to true
+			obj.StatusConditions().SetTrue(ConditionTypeBaz)
+			ExpectApplied(ctx, kubeClient, obj)
+		}
+
+		// Run 100 object reconciles at once to attempt to trigger a data race
+		for _, obj := range objs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer GinkgoRecover()
+
+				ExpectReconciled(ctx, controller, obj)
+			}()
+		}
 	})
 })
 

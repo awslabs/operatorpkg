@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/awslabs/operatorpkg/object"
@@ -37,14 +38,13 @@ const (
 type Controller[T Object] struct {
 	kubeClient         client.Client
 	eventRecorder      record.EventRecorder
-	observedConditions map[reconcile.Request]ConditionSet
+	observedConditions sync.Map // map[reconcile.Request]ConditionSet
 }
 
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder) *Controller[T] {
 	return &Controller[T]{
-		kubeClient:         client,
-		eventRecorder:      eventRecorder,
-		observedConditions: map[reconcile.Request]ConditionSet{},
+		kubeClient:    client,
+		eventRecorder: eventRecorder,
 	}
 }
 
@@ -80,8 +80,11 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 
 	currentConditions := o.StatusConditions()
-	observedConditions := c.observedConditions[req]
-	c.observedConditions[req] = currentConditions
+	observedConditions := ConditionSet{}
+	if v, ok := c.observedConditions.Load(req); ok {
+		observedConditions = v.(ConditionSet)
+	}
+	c.observedConditions.Store(req, currentConditions)
 
 	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
