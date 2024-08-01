@@ -77,7 +77,7 @@ func (c ConditionSet) List() []Condition {
 	return c.object.GetConditions()
 }
 
-// GetCondition finds and returns the Condition that matches the ConditionType
+// Get finds and returns the Condition that matches the ConditionType
 // previously set on Conditions.
 func (c ConditionSet) Get(t string) *Condition {
 	if c.object == nil {
@@ -89,7 +89,7 @@ func (c ConditionSet) Get(t string) *Condition {
 	return nil
 }
 
-// True returns true if all condition types are true.
+// IsTrue returns true if all condition types are true.
 func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
 	for _, conditionType := range conditionTypes {
 		if !c.Get(conditionType).IsTrue() {
@@ -126,7 +126,7 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 	return true
 }
 
-// RemoveCondition removes the non normal condition that matches the ConditionType
+// Clear removes the abnormal condition that matches the ConditionType
 // Not implemented for normal conditions
 func (c ConditionSet) Clear(t string) error {
 	var conditions []Condition
@@ -155,13 +155,13 @@ func (c ConditionSet) Clear(t string) error {
 	return nil
 }
 
-// SetTrue sets the status of t to true with the reason, and then marks the root condition to
+// SetTrue sets the status of conditionType to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
 func (c ConditionSet) SetTrue(conditionType string) (modified bool) {
 	return c.SetTrueWithReason(conditionType, conditionType, "")
 }
 
-// SetTrueWithReason sets the status of t to true with the reason, and then marks the root condition to
+// SetTrueWithReason sets the status of conditionType to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
 func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message string) (modified bool) {
 	return c.Set(Condition{
@@ -174,19 +174,24 @@ func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message st
 
 // SetUnknown sets the status of conditionType to Unknown and also sets the root condition
 // to Unknown if no other dependent condition is in an error state.
-func (r ConditionSet) SetUnknown(conditionType string) (modified bool) {
-	// set the specified condition
-	return r.Set(Condition{
+func (c ConditionSet) SetUnknown(conditionType string) (modified bool) {
+	return c.SetUnknownWithReason(conditionType, "AwaitingReconciliation", "object is awaiting reconciliation")
+}
+
+// SetUnknownWithReason sets the status of conditionType to Unknown with the reason, and also sets the root condition
+// to Unknown if no other dependent condition is in an error state.
+func (c ConditionSet) SetUnknownWithReason(conditionType string, reason, message string) (modified bool) {
+	return c.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionUnknown,
-		Reason:  "AwaitingReconciliation",
-		Message: "object is awaiting reconciliation",
+		Reason:  reason,
+		Message: message,
 	})
 }
 
-// SetFalse sets the status of t and the root condition to False.
-func (r ConditionSet) SetFalse(conditionType string, reason, message string) (modified bool) {
-	return r.Set(Condition{
+// SetFalse sets the status of conditionType and the root condition to False.
+func (c ConditionSet) SetFalse(conditionType string, reason, message string) (modified bool) {
+	return c.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
@@ -195,15 +200,15 @@ func (r ConditionSet) SetFalse(conditionType string, reason, message string) (mo
 }
 
 // recomputeRootCondition marks the root condition to true if all other dependents are also true.
-func (r ConditionSet) recomputeRootCondition(conditionType string) {
-	if conditionType == r.root {
+func (c ConditionSet) recomputeRootCondition(conditionType string) {
+	if conditionType == c.root {
 		return
 	}
-	if conditions := r.findUnhealthyDependents(); len(conditions) == 0 {
-		r.SetTrue(r.root)
+	if conditions := c.findUnhealthyDependents(); len(conditions) == 0 {
+		c.SetTrue(c.root)
 	} else {
-		r.Set(Condition{
-			Type: r.root,
+		c.Set(Condition{
+			Type: c.root,
 			// The root condition is no longer unknown as soon as any are false
 			Status: lo.Ternary(
 				lo.ContainsBy(conditions, func(condition Condition) bool { return condition.IsFalse() }),

@@ -17,9 +17,19 @@ var _ = Describe("Conditions", func() {
 		Expect(conditions.Get(ConditionTypeFoo).GetStatus()).To(Equal(metav1.ConditionUnknown))
 		Expect(conditions.Get(ConditionTypeBar).GetStatus()).To(Equal(metav1.ConditionUnknown))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
+		// Update the condition to unknown with reason
+		Expect(conditions.SetUnknownWithReason(ConditionTypeFoo, "reason", "message")).To(BeTrue())
+		fooCondition := conditions.Get(ConditionTypeFoo)
+		Expect(fooCondition.Type).To(Equal(ConditionTypeFoo))
+		Expect(fooCondition.Status).To(Equal(metav1.ConditionUnknown))
+		Expect(fooCondition.Reason).To(Equal("reason"))   // default to type
+		Expect(fooCondition.Message).To(Equal("message")) // default to type
+		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
+		time.Sleep(1 * time.Nanosecond)
 		// Update the condition to true
 		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeTrue())
-		fooCondition := conditions.Get(ConditionTypeFoo)
+		fooCondition = conditions.Get(ConditionTypeFoo)
 		Expect(fooCondition.Type).To(Equal(ConditionTypeFoo))
 		Expect(fooCondition.Status).To(Equal(metav1.ConditionTrue))
 		Expect(fooCondition.Reason).To(Equal(ConditionTypeFoo)) // default to type
