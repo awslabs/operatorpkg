@@ -25,7 +25,7 @@ var (
 	requestLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "client_go_request_duration_seconds",
 		Help:    "Request latency in seconds. Broken down by verb, group, version, kind, and subresource.",
-		Buckets: prometheus.ExponentialBuckets(0.001, 2, 10),
+		Buckets: prometheus.ExponentialBuckets(0.001, 1.5, 20),
 	}, []string{"verb", "group", "version", "kind", "subresource"})
 )
 
