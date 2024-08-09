@@ -46,8 +46,8 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition2.Status).To(Equal(metav1.ConditionFalse))
 		Expect(fooCondition2.Reason).To(Equal("reason"))
 		Expect(fooCondition2.Message).To(Equal("message"))
-		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
-		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
+		Expect(fooCondition2.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition2.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionFalse))
 		time.Sleep(1 * time.Nanosecond)
 		// transition the root condition to true
@@ -58,7 +58,7 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedFooCondition.Reason).To(Equal("reason"))
 		Expect(updatedFooCondition.Message).To(Equal("message"))
 		Expect(updatedFooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", fooCondition.LastTransitionTime.UnixNano()))
-		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
+		Expect(updatedFooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionTrue))
 		time.Sleep(1 * time.Nanosecond)
 		// Transition if the status is the same, but the Reason is different
@@ -68,7 +68,7 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedBarCondition.Status).To(Equal(metav1.ConditionFalse))
 		Expect(updatedBarCondition.Reason).To(Equal("another-reason"))
 		Expect(updatedBarCondition.LastTransitionTime.UnixNano()).ToNot(BeNumerically("==", fooCondition2.LastTransitionTime.UnixNano()))
-		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
+		Expect(updatedFooCondition.ObservedGeneration).To(Equal(int64(1)))
 		// Dont transition if reason and message are the same
 		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeFalse())
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeFalse())
