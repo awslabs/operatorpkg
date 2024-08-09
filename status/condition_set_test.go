@@ -11,7 +11,8 @@ import (
 
 var _ = Describe("Conditions", func() {
 	It("should correctly toggle conditions", func() {
-		testObject := &TestObject{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
+		testObject := TestObject{}
+		testObject.Generation = 1
 		// Conditions should be initialized
 		conditions := testObject.StatusConditions()
 		Expect(conditions.Get(ConditionTypeFoo).GetStatus()).To(Equal(metav1.ConditionUnknown))
@@ -68,10 +69,15 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedBarCondition.Status).To(Equal(metav1.ConditionFalse))
 		Expect(updatedBarCondition.Reason).To(Equal("another-reason"))
 		Expect(updatedBarCondition.LastTransitionTime.UnixNano()).ToNot(BeNumerically("==", fooCondition2.LastTransitionTime.UnixNano()))
-		Expect(updatedFooCondition.ObservedGeneration).To(Equal(int64(1)))
+		Expect(updatedBarCondition.ObservedGeneration).To(Equal(int64(1)))
 		// Dont transition if reason and message are the same
 		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeFalse())
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeFalse())
+		testObject.Generation = 2
+		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeTrue())
+		updatedBarCondition2 := conditions.Get(ConditionTypeBar)
+		Expect(updatedBarCondition2.LastTransitionTime.UnixNano()).To(BeNumerically("==", updatedBarCondition.LastTransitionTime.UnixNano()))
+		Expect(updatedBarCondition2.ObservedGeneration).To(Equal(int64(2)))
 	})
 
 	It("all true", func() {
