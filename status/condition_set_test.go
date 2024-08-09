@@ -11,7 +11,7 @@ import (
 
 var _ = Describe("Conditions", func() {
 	It("should correctly toggle conditions", func() {
-		testObject := TestObject{}
+		testObject := &TestObject{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
 		// Conditions should be initialized
 		conditions := testObject.StatusConditions()
 		Expect(conditions.Get(ConditionTypeFoo).GetStatus()).To(Equal(metav1.ConditionUnknown))
@@ -25,6 +25,7 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition.Reason).To(Equal("reason"))   // default to type
 		Expect(fooCondition.Message).To(Equal("message")) // default to type
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
 		time.Sleep(1 * time.Nanosecond)
 		// Update the condition to true
@@ -35,6 +36,7 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition.Reason).To(Equal(ConditionTypeFoo)) // default to type
 		Expect(fooCondition.Message).To(Equal(""))              // default to type
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
 		time.Sleep(1 * time.Nanosecond)
 		// Update the other condition to false
@@ -45,6 +47,7 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition2.Reason).To(Equal("reason"))
 		Expect(fooCondition2.Message).To(Equal("message"))
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionFalse))
 		time.Sleep(1 * time.Nanosecond)
 		// transition the root condition to true
@@ -55,6 +58,7 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedFooCondition.Reason).To(Equal("reason"))
 		Expect(updatedFooCondition.Message).To(Equal("message"))
 		Expect(updatedFooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", fooCondition.LastTransitionTime.UnixNano()))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionTrue))
 		time.Sleep(1 * time.Nanosecond)
 		// Transition if the status is the same, but the Reason is different
@@ -64,6 +68,7 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedBarCondition.Status).To(Equal(metav1.ConditionFalse))
 		Expect(updatedBarCondition.Reason).To(Equal("another-reason"))
 		Expect(updatedBarCondition.LastTransitionTime.UnixNano()).ToNot(BeNumerically("==", fooCondition2.LastTransitionTime.UnixNano()))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		// Dont transition if reason and message are the same
 		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeFalse())
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeFalse())

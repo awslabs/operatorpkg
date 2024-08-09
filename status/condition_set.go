@@ -110,12 +110,14 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 		} else {
 			// If we'd only update the LastTransitionTime, then return.
 			condition.LastTransitionTime = c.LastTransitionTime
+			condition.ObservedGeneration = c.ObservedGeneration
 			if reflect.DeepEqual(condition, c) {
 				return false
 			}
 		}
 	}
 	condition.LastTransitionTime = metav1.Now()
+	condition.ObservedGeneration = c.object.GetGeneration()
 	conditions = append(conditions, condition)
 	// Sorted for convenience of the consumer, i.e. kubectl.
 	sort.Slice(conditions, func(i, j int) bool { return conditions[i].Type < conditions[j].Type })
