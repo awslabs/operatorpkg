@@ -103,6 +103,7 @@ func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
 // If there is an update, Conditions are stored back sorted.
 func (c ConditionSet) Set(condition Condition) (modified bool) {
 	conditionType := condition.Type
+	skipResetLastTransitionTime := false
 	var conditions []Condition
 	for _, cond := range c.object.GetConditions() {
 		if cond.Type != conditionType {
@@ -116,15 +117,17 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 					return false
 				} else {
 					// If we'd only update the ObservedGeneration, then keep the LastTransitionTime.
+					skipResetLastTransitionTime = true
 					condition.LastTransitionTime = cond.LastTransitionTime
 					condition.ObservedGeneration = c.object.GetGeneration()
 				}
-			} else {
-				condition.LastTransitionTime = metav1.Now()
-				condition.ObservedGeneration = c.object.GetGeneration()
 			}
 		}
 	}
+	if !skipResetLastTransitionTime {
+		condition.LastTransitionTime = metav1.Now()
+	}
+	condition.ObservedGeneration = c.object.GetGeneration()
 	conditions = append(conditions, condition)
 	// Sorted for convenience of the consumer, i.e. kubectl.
 	sort.Slice(conditions, func(i, j int) bool { return conditions[i].Type < conditions[j].Type })
