@@ -3,6 +3,8 @@ package status
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,7 +54,7 @@ func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		For(object.New[T]()).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
-		Named("status").
+		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(reflect.TypeOf(object.New[T]()).Elem().Name()))).
 		Complete(c)
 }
 
