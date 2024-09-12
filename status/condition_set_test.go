@@ -12,6 +12,7 @@ import (
 var _ = Describe("Conditions", func() {
 	It("should correctly toggle conditions", func() {
 		testObject := TestObject{}
+		testObject.Generation = 1
 		// Conditions should be initialized
 		conditions := testObject.StatusConditions()
 		Expect(conditions.Get(ConditionTypeFoo).GetStatus()).To(Equal(metav1.ConditionUnknown))
@@ -25,6 +26,7 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition.Reason).To(Equal("reason"))   // default to type
 		Expect(fooCondition.Message).To(Equal("message")) // default to type
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
 		time.Sleep(1 * time.Nanosecond)
 		// Update the condition to true
@@ -35,6 +37,7 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition.Reason).To(Equal(ConditionTypeFoo)) // default to type
 		Expect(fooCondition.Message).To(Equal(""))              // default to type
 		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
 		time.Sleep(1 * time.Nanosecond)
 		// Update the other condition to false
@@ -44,7 +47,8 @@ var _ = Describe("Conditions", func() {
 		Expect(fooCondition2.Status).To(Equal(metav1.ConditionFalse))
 		Expect(fooCondition2.Reason).To(Equal("reason"))
 		Expect(fooCondition2.Message).To(Equal("message"))
-		Expect(fooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition2.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(fooCondition2.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionFalse))
 		time.Sleep(1 * time.Nanosecond)
 		// transition the root condition to true
@@ -55,6 +59,7 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedFooCondition.Reason).To(Equal("reason"))
 		Expect(updatedFooCondition.Message).To(Equal("message"))
 		Expect(updatedFooCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", fooCondition.LastTransitionTime.UnixNano()))
+		Expect(updatedFooCondition.ObservedGeneration).To(Equal(int64(1)))
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionTrue))
 		time.Sleep(1 * time.Nanosecond)
 		// Transition if the status is the same, but the Reason is different
@@ -64,9 +69,24 @@ var _ = Describe("Conditions", func() {
 		Expect(updatedBarCondition.Status).To(Equal(metav1.ConditionFalse))
 		Expect(updatedBarCondition.Reason).To(Equal("another-reason"))
 		Expect(updatedBarCondition.LastTransitionTime.UnixNano()).ToNot(BeNumerically("==", fooCondition2.LastTransitionTime.UnixNano()))
+		Expect(updatedBarCondition.ObservedGeneration).To(Equal(int64(1)))
 		// Dont transition if reason and message are the same
 		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeFalse())
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeFalse())
+		testObject.Generation = 2
+		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeTrue())
+		updatedBarCondition2 := conditions.Get(ConditionTypeBar)
+		Expect(updatedBarCondition2.LastTransitionTime.UnixNano()).To(BeNumerically("==", updatedBarCondition.LastTransitionTime.UnixNano()))
+		Expect(updatedBarCondition2.ObservedGeneration).To(Equal(int64(2)))
+		// root should be false when any dependent condition is false
+		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionFalse))
+		Expect(conditions.Root().Reason).To(Equal("UnhealthyDependents"))
+		// root should be unknown when no dependent condition is false and any observedGeneration doesn't match with latest generation
+		Expect(conditions.SetTrue(ConditionTypeBar)).To(BeTrue())
+		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
+		Expect(conditions.Root().Reason).To(Equal("ReconcilingDependents"))
+		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeTrue())
+		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionTrue))
 	})
 
 	It("all true", func() {
