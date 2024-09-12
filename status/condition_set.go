@@ -110,7 +110,7 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 		} else {
 			condition.LastTransitionTime = metav1.Now()
 			condition.ObservedGeneration = c.object.GetGeneration()
-			if condition.Status == cond.Status && cond.LastTransitionTime.UnixNano() > 0 {
+			if condition.Status == cond.Status && !cond.LastTransitionTime.IsZero() {
 				condition.LastTransitionTime = cond.LastTransitionTime
 			}
 			if reflect.DeepEqual(condition, cond) {
@@ -209,18 +209,25 @@ func (c ConditionSet) recomputeRootCondition(conditionType string) {
 	if conditions := c.findUnhealthyDependents(); len(conditions) == 0 {
 		c.SetTrue(c.root)
 	} else {
+		// The root condition is no longer unknown as soon as any dependent condition goes false with the latest observedGeneration
+		status := lo.Ternary(
+			lo.ContainsBy(conditions, func(condition Condition) bool {
+				return condition.IsFalse() &&
+					condition.ObservedGeneration == c.object.GetGeneration()
+			}),
+			metav1.ConditionFalse,
+			metav1.ConditionUnknown,
+		)
 		c.Set(Condition{
-			Type: c.root,
-			// The root condition is no longer unknown as soon as any dependency condition false with latest observedGeneration
-			Status: lo.Ternary(
-				lo.ContainsBy(conditions, func(condition Condition) bool {
-					return condition.IsFalse() &&
-						condition.ObservedGeneration == c.object.GetGeneration()
-				}),
-				metav1.ConditionFalse,
-				metav1.ConditionUnknown,
+			Type:   c.root,
+			Status: status,
+			Reason: lo.Ternary(
+				status == metav1.ConditionUnknown && len(lo.Filter(conditions, func(condition Condition, _ int) bool {
+					return condition.IsTrue() && condition.ObservedGeneration < c.object.GetGeneration()
+				})) > 0,
+				"ReconcilingDependents",
+				"UnhealthyDependents",
 			),
-			Reason: "UnhealthyDependents",
 			Message: strings.Join(lo.Map(conditions, func(condition Condition, _ int) string {
 				return fmt.Sprintf("%s=%s", condition.Type, condition.Status)
 			}), ", "),

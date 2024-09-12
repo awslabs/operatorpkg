@@ -78,11 +78,15 @@ var _ = Describe("Conditions", func() {
 		updatedBarCondition2 := conditions.Get(ConditionTypeBar)
 		Expect(updatedBarCondition2.LastTransitionTime.UnixNano()).To(BeNumerically("==", updatedBarCondition.LastTransitionTime.UnixNano()))
 		Expect(updatedBarCondition2.ObservedGeneration).To(Equal(int64(2)))
-		// root should be false when any dependency condition is false
+		// root should be false when any dependent condition is false
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionFalse))
-		// root should be unknown when no dependency condition is false and any observedGeneration doesn't match with latest generation
+		Expect(conditions.Root().Reason).To(Equal("UnhealthyDependents"))
+		// root should be unknown when no dependent condition is false and any observedGeneration doesn't match with latest generation
 		Expect(conditions.SetTrue(ConditionTypeBar)).To(BeTrue())
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
+		Expect(conditions.Root().Reason).To(Equal("ReconcilingDependents"))
+		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeTrue())
+		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionTrue))
 	})
 
 	It("all true", func() {
