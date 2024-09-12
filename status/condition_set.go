@@ -108,16 +108,16 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 		if cond.Type != conditionType {
 			conditions = append(conditions, cond)
 		} else {
-			condition.LastTransitionTime = metav1.Now()
-			condition.ObservedGeneration = c.object.GetGeneration()
-			if condition.Status == cond.Status && !cond.LastTransitionTime.IsZero() {
-				condition.LastTransitionTime = cond.LastTransitionTime
-			}
-			if reflect.DeepEqual(condition, cond) {
+			condition.LastTransitionTime = cond.LastTransitionTime
+			condition.ObservedGeneration = cond.ObservedGeneration
+			if reflect.DeepEqual(condition, cond) && cond.ObservedGeneration == c.object.GetGeneration() {
+				// If we'd only update the LastTransitionTime, then return.
 				return false
 			}
 		}
 	}
+	condition.LastTransitionTime = metav1.Now()
+	condition.ObservedGeneration = c.object.GetGeneration()
 	conditions = append(conditions, condition)
 	// Sorted for convenience of the consumer, i.e. kubectl.
 	sort.Slice(conditions, func(i, j int) bool { return conditions[i].Type < conditions[j].Type })
