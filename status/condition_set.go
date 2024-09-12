@@ -222,9 +222,7 @@ func (c ConditionSet) recomputeRootCondition(conditionType string) {
 			Type:   c.root,
 			Status: status,
 			Reason: lo.Ternary(
-				status == metav1.ConditionUnknown && len(lo.Filter(conditions, func(condition Condition, _ int) bool {
-					return condition.IsTrue() && condition.ObservedGeneration < c.object.GetGeneration()
-				})) > 0,
+				status == metav1.ConditionUnknown,
 				"ReconcilingDependents",
 				"UnhealthyDependents",
 			),
