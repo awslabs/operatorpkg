@@ -76,7 +76,7 @@ var _ = Describe("Conditions", func() {
 		testObject.Generation = 2
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeTrue())
 		updatedBarCondition2 := conditions.Get(ConditionTypeBar)
-		Expect(updatedBarCondition2.LastTransitionTime.UnixNano()).To(BeNumerically("==", updatedBarCondition.LastTransitionTime.UnixNano()))
+		Expect(updatedBarCondition2.LastTransitionTime.UnixNano()).To(BeNumerically(">", updatedBarCondition.LastTransitionTime.UnixNano()))
 		Expect(updatedBarCondition2.ObservedGeneration).To(Equal(int64(2)))
 		// root should be false when any dependent condition is false
 		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionFalse))
