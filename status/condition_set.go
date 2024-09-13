@@ -104,12 +104,12 @@ func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
 func (c ConditionSet) Set(condition Condition) (modified bool) {
 	conditionType := condition.Type
 	var conditions []Condition
+	condition.LastTransitionTime = metav1.Now()
+	condition.ObservedGeneration = c.object.GetGeneration()
 	for _, cond := range c.object.GetConditions() {
 		if cond.Type != conditionType {
 			conditions = append(conditions, cond)
 		} else {
-			condition.LastTransitionTime = metav1.Now()
-			condition.ObservedGeneration = c.object.GetGeneration()
 			if condition.Status == cond.Status && !cond.LastTransitionTime.IsZero() {
 				condition.LastTransitionTime = cond.LastTransitionTime
 			}

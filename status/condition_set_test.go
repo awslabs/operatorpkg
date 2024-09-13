@@ -73,6 +73,11 @@ var _ = Describe("Conditions", func() {
 		// Dont transition if reason and message are the same
 		Expect(conditions.SetTrue(ConditionTypeFoo)).To(BeFalse())
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeFalse())
+		// set certain condition for first time when it is never set in object conditions
+		Expect(conditions.SetTrue(ConditionTypeBaz)).To(BeTrue())
+		updatedBazCondition := conditions.Get(ConditionTypeBaz)
+		Expect(updatedBazCondition.LastTransitionTime.UnixNano()).To(BeNumerically(">", 0))
+		Expect(updatedBazCondition.ObservedGeneration).To(Equal(int64(1)))
 		testObject.Generation = 2
 		Expect(conditions.SetFalse(ConditionTypeBar, "another-reason", "another-message")).To(BeTrue())
 		updatedBarCondition2 := conditions.Get(ConditionTypeBar)
