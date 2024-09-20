@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"strings"
 	"sync"
@@ -33,14 +34,16 @@ const (
 )
 
 const (
-	MetricNamespace = "operator"
-	MetricSubsystem = "status_condition"
+	MetricNamespace      = "operator"
+	MetricSubsystem      = "status_condition"
+	TerminationSubsystem = "termination"
 )
 
 type Controller[T Object] struct {
 	kubeClient         client.Client
 	eventRecorder      record.EventRecorder
 	observedConditions sync.Map // map[reconcile.Request]ConditionSet
+	terminatingObjects sync.Map // map[reconcile.Request]DeletionTimestamp
 }
 
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder) *Controller[T] {
@@ -76,6 +79,20 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
+			TerminationCurrentTimeSeconds.DeletePartialMatch(prometheus.Labels{
+				MetricLabelNamespace: req.Namespace,
+				MetricLabelName:      req.Name,
+				MetricLabelGroup:     gvk.Group,
+				MetricLabelKind:      gvk.Kind,
+			})
+			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
+				TerminationDuration.With(prometheus.Labels{
+					MetricLabelGroup:     gvk.Group,
+					MetricLabelKind:      gvk.Kind,
+					MetricLabelNamespace: req.Namespace,
+					MetricLabelName:      req.Name,
+				}).Observe(time.Since(deletionTS.(*metav1.Time).Time).Seconds())
+			}
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, fmt.Errorf("getting object, %w", err)
@@ -108,6 +125,15 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelConditionStatus: string(condition.Status),
 			MetricLabelConditionReason: condition.Reason,
 		}).Set(time.Since(condition.LastTransitionTime.Time).Seconds())
+	}
+	if o.GetDeletionTimestamp() != nil {
+		TerminationCurrentTimeSeconds.With(prometheus.Labels{
+			MetricLabelNamespace: req.Namespace,
+			MetricLabelName:      req.Name,
+			MetricLabelGroup:     gvk.Group,
+			MetricLabelKind:      gvk.Kind,
+		}).Set(time.Since(o.GetDeletionTimestamp().Time).Seconds())
+		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
 	}
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
@@ -254,11 +280,43 @@ var ConditionTransitionsTotal = prometheus.NewCounterVec(
 	},
 )
 
+var TerminationCurrentTimeSeconds = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Namespace: MetricNamespace,
+		Subsystem: TerminationSubsystem,
+		Name:      "current_time_seconds",
+		Help:      "The current amount of time in seconds that an object has been in terminating state.",
+	},
+	[]string{
+		MetricLabelNamespace,
+		MetricLabelName,
+		MetricLabelGroup,
+		MetricLabelKind,
+	},
+)
+
+var TerminationDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Namespace: MetricNamespace,
+		Subsystem: TerminationSubsystem,
+		Name:      "duration_seconds",
+		Help:      "The amount of time taken by an object to terminate completely.",
+	},
+	[]string{
+		MetricLabelGroup,
+		MetricLabelKind,
+		MetricLabelNamespace,
+		MetricLabelName,
+	},
+)
+
 func init() {
 	metrics.Registry.MustRegister(
 		ConditionCount,
 		ConditionDuration,
 		ConditionTransitionsTotal,
 		ConditionCurrentStatusSeconds,
+		TerminationCurrentTimeSeconds,
+		TerminationDuration,
 	)
 }
