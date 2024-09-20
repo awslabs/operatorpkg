@@ -33,7 +33,25 @@ var _ = Describe("Controller", func() {
 		controller = status.NewController[*TestObject](kubeClient, recorder)
 		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 	})
+	It("should emit termination metrics when deletion timestamp is set", func() {
+		testObject := test.Object(&TestObject{})
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectDeletionTimestampSet(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		metric := GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
+		Expect(metric).ToNot(BeNil())
+		Expect(metric.GetGauge().GetValue()).To(BeNumerically(">", 0))
 
+		// Patch the finalizer
+		mergeFrom := client.MergeFrom(testObject.DeepCopyObject().(client.Object))
+		testObject.SetFinalizers([]string{})
+		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
+		ExpectReconciled(ctx, controller, testObject)
+		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
+		metric = GetMetric("operator_termination_duration_seconds", map[string]string{status.MetricLabelName: testObject.Name})
+		Expect(metric).ToNot(BeNil())
+		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
+	})
 	It("should emit metrics and events on a transition", func() {
 		testObject := test.Object(&TestObject{})
 		testObject.StatusConditions() // initialize conditions

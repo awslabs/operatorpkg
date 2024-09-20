@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sync"
 	"time"
 
@@ -101,6 +102,18 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 
 		// Re-get the object to grab the updated spec and status
 		ExpectObject(ctx, c, o)
+	}
+}
+
+// ExpectDeletionTimestampSet ensures that the deletion timestamp is set on the objects by adding a finalizer
+// and then deleting the object immediately after. This will hold the object until the finalizer is patched out
+func ExpectDeletionTimestampSet(ctx context.Context, c client.Client, objects ...client.Object) {
+	GinkgoHelper()
+	for _, o := range objects {
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
+		controllerutil.AddFinalizer(o, "testing/finalizer")
+		Expect(c.Update(ctx, o)).To(Succeed())
+		Expect(c.Delete(ctx, o)).To(Succeed())
 	}
 }
 
