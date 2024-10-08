@@ -120,7 +120,13 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 	}
 	conditions = append(conditions, condition)
 	// Sorted for convenience of the consumer, i.e. kubectl.
-	sort.Slice(conditions, func(i, j int) bool { return conditions[i].Type < conditions[j].Type })
+	sort.SliceStable(conditions, func(i, j int) bool {
+		// Order the root status condition at the end
+		if conditions[i].Type == c.root || conditions[j].Type == c.root {
+			return conditions[j].Type == c.root
+		}
+		return conditions[i].LastTransitionTime.Time.Before(conditions[j].LastTransitionTime.Time)
+	})
 	c.object.SetConditions(conditions)
 
 	// Recompute the root condition after setting any other condition
