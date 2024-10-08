@@ -3,6 +3,7 @@ package status_test
 import (
 	"time"
 
+	"github.com/awslabs/operatorpkg/status"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -139,5 +140,28 @@ var _ = Describe("Conditions", func() {
 		Expect(testObject.StatusConditions().IsTrue(ConditionTypeFoo, ConditionTypeBar)).To(BeTrue())
 		Expect(testObject.StatusConditions().IsTrue(ConditionTypeFoo, ConditionTypeBaz)).To(BeTrue())
 		Expect(testObject.StatusConditions().IsTrue(ConditionTypeFoo, ConditionTypeBar, ConditionTypeBaz)).To(BeTrue())
+	})
+	It("should sort status conditions", func() {
+		testObject := TestObject{}
+		// Ready condition should be at the end
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-1].Type).To(Equal(status.ConditionReady))
+
+		testObject.StatusConditions().SetTrue(ConditionTypeFoo)
+		// Ready condition should be last with Foo condition second to last since it was recently updated
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-1].Type).To(Equal(status.ConditionReady))
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-2].Type).To(Equal(ConditionTypeFoo))
+
+		testObject.StatusConditions().SetTrue(ConditionTypeBar)
+		// Ready condition should be last with Bar condition second to last since it was recently updated and Foo condition third to last
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-1].Type).To(Equal(status.ConditionReady))
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-2].Type).To(Equal(ConditionTypeBar))
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-3].Type).To(Equal(ConditionTypeFoo))
+
+		testObject.StatusConditions().SetTrue(ConditionTypeBaz)
+		// Ready condition should be last with Bar condition second to last since it was recently updated, Bar condition third to last, and Foo condition at the top
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-1].Type).To(Equal(status.ConditionReady))
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-2].Type).To(Equal(ConditionTypeBaz))
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-3].Type).To(Equal(ConditionTypeBar))
+		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-4].Type).To(Equal(ConditionTypeFoo))
 	})
 })
