@@ -2,11 +2,13 @@ package test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sync"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/awslabs/operatorpkg/singleton"
@@ -15,10 +17,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/samber/lo"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -166,35 +165,44 @@ func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
+// ExpectCleanedUp waits to cleanup all items passed through objectLists
 func ExpectCleanedUp(ctx context.Context, c client.Client, objectLists ...client.ObjectList) {
+	expectCleanedUp(ctx, c, false, objectLists...)
+}
+
+// ExpectForceCleanedUp waits to cleanup all items passed through objectLists
+// It forcefully removes any finalizers from all of these objects to unblock delete
+func ExpectForceCleanedUp(ctx context.Context, c client.Client, objectLists ...client.ObjectList) {
+	expectCleanedUp(ctx, c, true, objectLists...)
+}
+
+func expectCleanedUp(ctx context.Context, c client.Client, force bool, objectLists ...client.ObjectList) {
 	wg := sync.WaitGroup{}
-	namespaces := &v1.NamespaceList{}
-	Expect(c.List(ctx, namespaces)).To(Succeed())
 	for _, objectList := range objectLists {
-		for _, namespace := range namespaces.Items {
-			wg.Add(1)
-			go func(objectList client.ObjectList, namespace string) {
-				defer GinkgoRecover()
-				defer wg.Done()
+		wg.Add(1)
+		go func(objectList client.ObjectList) {
+			defer GinkgoRecover()
+			defer wg.Done()
 
-				unstructuredList := &unstructured.UnstructuredList{}
-				unstructuredList.UnmarshalJSON(lo.Must(json.Marshal(objectList)))
-				unstructuredList.SetAPIVersion(object.GVK(objectList).GroupVersion().String())
-				unstructuredList.SetKind(object.GVK(objectList).Kind)
+			Eventually(func(g Gomega) {
+				metaList := &metav1.PartialObjectMetadataList{}
+				metaList.SetGroupVersionKind(lo.Must(apiutil.GVKForObject(objectList, c.Scheme())))
+				g.Expect(c.List(ctx, metaList)).To(Succeed())
 
-				Expect(c.List(ctx, unstructuredList)).To(Succeed())
-				unstructuredList.EachListItem(func(o runtime.Object) error {
-					o.(client.Object).SetFinalizers([]string{})
-					if err := c.Update(ctx, o.(client.Object)); err != nil {
-						return err
+				for _, item := range metaList.Items {
+					if force {
+						stored := item.DeepCopy()
+						item.SetFinalizers([]string{})
+						g.Expect(c.Patch(ctx, &item, client.MergeFrom(stored))).To(Succeed())
 					}
-					if err := c.Delete(ctx, o.(client.Object)); err != nil {
-						return err
+					if item.GetDeletionTimestamp().IsZero() {
+						g.Expect(client.IgnoreNotFound(c.Delete(ctx, &item, client.PropagationPolicy(metav1.DeletePropagationForeground), &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}))).To(Succeed())
 					}
-					return nil
-				})
-			}(objectList, namespace.Name)
-		}
+				}
+				g.Expect(c.List(ctx, metaList, client.Limit(1))).To(Succeed())
+				g.Expect(metaList.Items).To(HaveLen(0))
+			}).Should(Succeed())
+		}(objectList)
 	}
 	wg.Wait()
 }
