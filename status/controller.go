@@ -3,7 +3,6 @@ package status
 import (
 	"context"
 	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,9 +62,11 @@ func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 }
 
 func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	o := object.New[T]()
-	gvk := object.GVK(o)
+	return c.reconcile(ctx, req, object.New[T]())
+}
 
+func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o Object) (reconcile.Result, error) {
+	gvk := object.GVK(o)
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
 			ConditionCount.DeletePartialMatch(prometheus.Labels{
@@ -205,6 +207,28 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 		))
 	}
 	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
+}
+
+type GenericObjectController[T client.Object] struct {
+	*Controller[UnstructuredAdapter]
+}
+
+func NewGenericObjectController[T client.Object](client client.Client, eventRecorder record.EventRecorder) *GenericObjectController[T] {
+	return &GenericObjectController[T]{
+		Controller: NewController[UnstructuredAdapter](client, eventRecorder),
+	}
+}
+
+func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	return c.reconcile(ctx, req, lo.Must(NewUnstructuredAdapter(object.New[T]())))
+}
+
+func (c *GenericObjectController[T]) Register(_ context.Context, m manager.Manager) error {
+	return controllerruntime.NewControllerManagedBy(m).
+		For(object.New[T]()).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(reflect.TypeOf(object.New[T]()).Elem().Name()))).
+		Complete(c)
 }
 
 // Cardinality is limited to # objects * # conditions * # objectives
