@@ -3,12 +3,14 @@ package status
 import (
 	"context"
 	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
@@ -67,31 +69,31 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
-			ConditionCount.DeletePartialMatch(prometheus.Labels{
+			ConditionCount.DeletePartialMatch(map[string]string{
 				MetricLabelGroup:     gvk.Group,
 				MetricLabelKind:      gvk.Kind,
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
-			ConditionCurrentStatusSeconds.DeletePartialMatch(prometheus.Labels{
+			ConditionCurrentStatusSeconds.DeletePartialMatch(map[string]string{
 				MetricLabelGroup:     gvk.Group,
 				MetricLabelKind:      gvk.Kind,
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
-			TerminationCurrentTimeSeconds.DeletePartialMatch(prometheus.Labels{
+			TerminationCurrentTimeSeconds.DeletePartialMatch(map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 				MetricLabelGroup:     gvk.Group,
 				MetricLabelKind:      gvk.Kind,
 			})
 			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
-				TerminationDuration.With(prometheus.Labels{
+				TerminationDuration.Observe(time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{
 					MetricLabelGroup:     gvk.Group,
 					MetricLabelKind:      gvk.Kind,
 					MetricLabelNamespace: req.Namespace,
 					MetricLabelName:      req.Name,
-				}).Observe(time.Since(deletionTS.(*metav1.Time).Time).Seconds())
+				})
 			}
 			return reconcile.Result{}, nil
 		}
@@ -107,7 +109,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
-		ConditionCount.With(prometheus.Labels{
+		ConditionCount.Set(1, map[string]string{
 			MetricLabelGroup:           gvk.Group,
 			MetricLabelKind:            gvk.Kind,
 			MetricLabelNamespace:       req.Namespace,
@@ -115,8 +117,8 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelConditionType:   condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			MetricLabelConditionReason: condition.Reason,
-		}).Set(1)
-		ConditionCurrentStatusSeconds.With(prometheus.Labels{
+		})
+		ConditionCurrentStatusSeconds.Set(time.Since(condition.LastTransitionTime.Time).Seconds(), map[string]string{
 			MetricLabelGroup:           gvk.Group,
 			MetricLabelKind:            gvk.Kind,
 			MetricLabelNamespace:       req.Namespace,
@@ -124,20 +126,20 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			MetricLabelConditionType:   condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			MetricLabelConditionReason: condition.Reason,
-		}).Set(time.Since(condition.LastTransitionTime.Time).Seconds())
+		})
 	}
 	if o.GetDeletionTimestamp() != nil {
-		TerminationCurrentTimeSeconds.With(prometheus.Labels{
+		TerminationCurrentTimeSeconds.Set(time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
 			MetricLabelNamespace: req.Namespace,
 			MetricLabelName:      req.Name,
 			MetricLabelGroup:     gvk.Group,
 			MetricLabelKind:      gvk.Kind,
-		}).Set(time.Since(o.GetDeletionTimestamp().Time).Seconds())
+		})
 		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
 	}
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
-			ConditionCount.Delete(prometheus.Labels{
+			ConditionCount.Delete(map[string]string{
 				MetricLabelGroup:           gvk.Group,
 				MetricLabelKind:            gvk.Kind,
 				MetricLabelNamespace:       req.Namespace,
@@ -146,7 +148,7 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				MetricLabelConditionReason: observedCondition.Reason,
 			})
-			ConditionCurrentStatusSeconds.Delete(prometheus.Labels{
+			ConditionCurrentStatusSeconds.Delete(map[string]string{
 				MetricLabelGroup:           gvk.Group,
 				MetricLabelKind:            gvk.Kind,
 				MetricLabelNamespace:       req.Namespace,
@@ -179,23 +181,23 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 			continue
 		}
 		// A condition transitions if it either didn't exist before or it has changed
-		ConditionTransitionsTotal.With(prometheus.Labels{
+		ConditionTransitionsTotal.Inc(map[string]string{
 			MetricLabelGroup:           gvk.Group,
 			MetricLabelKind:            gvk.Kind,
 			MetricLabelConditionType:   condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			MetricLabelConditionReason: condition.Reason,
-		}).Inc()
+		})
 		if observedCondition == nil {
 			continue
 		}
 		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
-		ConditionDuration.With(prometheus.Labels{
+		ConditionDuration.Observe(duration, map[string]string{
 			MetricLabelGroup:           gvk.Group,
 			MetricLabelKind:            gvk.Kind,
 			MetricLabelConditionType:   observedCondition.Type,
 			MetricLabelConditionStatus: string(observedCondition.Status),
-		}).Observe(duration)
+		})
 		c.eventRecorder.Event(o, v1.EventTypeNormal, condition.Type, fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s%s",
 			condition.Type,
 			observedCondition.Status,
@@ -208,7 +210,8 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 }
 
 // Cardinality is limited to # objects * # conditions * # objectives
-var ConditionDuration = prometheus.NewHistogramVec(
+var ConditionDuration = pmetrics.NewPrometheusHistogram(
+	metrics.Registry,
 	prometheus.HistogramOpts{
 		Namespace: MetricNamespace,
 		Subsystem: MetricSubsystem,
@@ -224,7 +227,8 @@ var ConditionDuration = prometheus.NewHistogramVec(
 )
 
 // Cardinality is limited to # objects * # conditions
-var ConditionCount = prometheus.NewGaugeVec(
+var ConditionCount = pmetrics.NewPrometheusGauge(
+	metrics.Registry,
 	prometheus.GaugeOpts{
 		Namespace: MetricNamespace,
 		Subsystem: MetricSubsystem,
@@ -245,7 +249,8 @@ var ConditionCount = prometheus.NewGaugeVec(
 // Cardinality is limited to # objects * # conditions
 // NOTE: This metric is based on a requeue so it won't show the current status seconds with extremely high accuracy.
 // This metric is useful for aggreations. If you need a high accuracy metric, use operator_status_condition_last_transition_time_seconds
-var ConditionCurrentStatusSeconds = prometheus.NewGaugeVec(
+var ConditionCurrentStatusSeconds = pmetrics.NewPrometheusGauge(
+	metrics.Registry,
 	prometheus.GaugeOpts{
 		Namespace: MetricNamespace,
 		Subsystem: MetricSubsystem,
@@ -264,7 +269,8 @@ var ConditionCurrentStatusSeconds = prometheus.NewGaugeVec(
 )
 
 // Cardinality is limited to # objects * # conditions
-var ConditionTransitionsTotal = prometheus.NewCounterVec(
+var ConditionTransitionsTotal = pmetrics.NewPrometheusCounter(
+	metrics.Registry,
 	prometheus.CounterOpts{
 		Namespace: MetricNamespace,
 		Subsystem: MetricSubsystem,
@@ -280,7 +286,8 @@ var ConditionTransitionsTotal = prometheus.NewCounterVec(
 	},
 )
 
-var TerminationCurrentTimeSeconds = prometheus.NewGaugeVec(
+var TerminationCurrentTimeSeconds = pmetrics.NewPrometheusGauge(
+	metrics.Registry,
 	prometheus.GaugeOpts{
 		Namespace: MetricNamespace,
 		Subsystem: TerminationSubsystem,
@@ -295,7 +302,8 @@ var TerminationCurrentTimeSeconds = prometheus.NewGaugeVec(
 	},
 )
 
-var TerminationDuration = prometheus.NewHistogramVec(
+var TerminationDuration = pmetrics.NewPrometheusHistogram(
+	metrics.Registry,
 	prometheus.HistogramOpts{
 		Namespace: MetricNamespace,
 		Subsystem: TerminationSubsystem,
@@ -309,14 +317,3 @@ var TerminationDuration = prometheus.NewHistogramVec(
 		MetricLabelName,
 	},
 )
-
-func init() {
-	metrics.Registry.MustRegister(
-		ConditionCount,
-		ConditionDuration,
-		ConditionTransitionsTotal,
-		ConditionCurrentStatusSeconds,
-		TerminationCurrentTimeSeconds,
-		TerminationDuration,
-	)
-}
