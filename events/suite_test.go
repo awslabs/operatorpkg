@@ -1,0 +1,165 @@
+package events_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/awslabs/operatorpkg/events"
+	"github.com/awslabs/operatorpkg/object"
+	"github.com/awslabs/operatorpkg/test"
+	. "github.com/awslabs/operatorpkg/test/expectations"
+	"github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	prometheus "github.com/prometheus/client_model/go"
+	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+)
+
+func Test(t *testing.T) {
+	lo.Must0(SchemeBuilder.AddToScheme(scheme.Scheme))
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Events")
+}
+
+var (
+	SchemeBuilder = runtime.NewSchemeBuilder(func(scheme *runtime.Scheme) error {
+		scheme.AddKnownTypes(schema.GroupVersion{Group: test.APIGroup, Version: "v1alpha1"}, &TestObject{})
+		return nil
+	})
+)
+
+var _ = Describe("Controller", func() {
+	var ctx context.Context
+	var recorder *record.FakeRecorder
+	var controller *events.Controller[*TestObject]
+	var kubeClient client.Client
+	BeforeEach(func() {
+		recorder = record.NewFakeRecorder(10)
+		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithIndex(&corev1.Event{}, "involvedObject.kind", func(o client.Object) []string {
+			evt := o.(*corev1.Event)
+			return []string{evt.InvolvedObject.Kind}
+		}).Build()
+		controller = events.NewController[*TestObject](kubeClient, recorder)
+		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
+	})
+	It("should emit metrics on an event", func() {
+		testObject := test.Object(&TestObject{})
+		ExpectApplied(ctx, kubeClient, testObject)
+
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeNormal, "reason one", "message one")).To(BeNil())
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeWarning, "reason one", "message one")).To(BeNil())
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeWarning, "reason one", "message two")).To(BeNil())
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeWarning, "reason two", "message one")).To(BeNil())
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeNormal, "reason two", "message one")).To(BeNil())
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeNormal, "reason two", "message two")).To(BeNil())
+		Expect(createEvent(ctx, kubeClient, testObject, corev1.EventTypeWarning, "reason two", "message two")).To(BeNil())
+
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeNormal, "reason one", "message one"))).To(BeNil())
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason one", "message one"))).To(BeNil())
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason one", "message one"))).To(BeNil())
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason two", "message one"))).To(BeNil())
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeNormal, "reason two", "message one"))).To(BeNil())
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeNormal, "reason two", "message two"))).To(BeNil())
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason two", "message one"))).To(BeNil())
+
+		ExpectReconciled(ctx, controller, testObject)
+
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeNormal, "reason one", "message one")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason one", "message one")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason one", "message one")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason two", "message one")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeNormal, "reason two", "message one")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeNormal, "reason two", "message two")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(getMetric("operator_event_count", conditionLabels(corev1.EventTypeWarning, "reason two", "message one")).GetGauge().GetValue()).To(BeEquivalentTo(1))
+	})
+})
+
+// +k8s:deepcopy-gen=true
+// +kubebuilder:object:root=true
+type TestObject struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+}
+
+// DeepCopyInto is an autogenerated deepcopy function, copying the receiver, writing into out. in must be non-nil.
+func (in *TestObject) DeepCopyInto(out *TestObject) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+}
+
+// DeepCopy is an autogenerated deepcopy function, copying the receiver, creating a new TestObject.
+func (in *TestObject) DeepCopy() *TestObject {
+	if in == nil {
+		return nil
+	}
+	out := new(TestObject)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject is an autogenerated deepcopy function, copying the receiver, creating a new runtime.Object.
+func (in *TestObject) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func createEvent(ctx context.Context, kubeClient client.Client, o *TestObject, eventType string, reason string, message string) error {
+	res := &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: test.RandomName(),
+		},
+		InvolvedObject: corev1.ObjectReference{
+			Namespace: o.Namespace,
+			Name:      o.Name,
+			Kind:      object.GVK(o).Kind,
+		},
+		Type:    eventType,
+		Reason:  reason,
+		Message: message,
+		Count:   1,
+	}
+
+	return kubeClient.Create(ctx, res)
+}
+
+// GetMetric attempts to find a metric given name and labels
+// If no metric is found, the *prometheus.Metric will be nil
+func getMetric(name string, labels ...map[string]string) *prometheus.Metric {
+	family, found := lo.Find(lo.Must(metrics.Registry.Gather()), func(family *prometheus.MetricFamily) bool { return family.GetName() == name })
+	if !found {
+		return nil
+	}
+	for _, m := range family.Metric {
+		temp := lo.Assign(labels...)
+		for _, labelPair := range m.Label {
+			if v, ok := temp[labelPair.GetName()]; ok && v == labelPair.GetValue() {
+				delete(temp, labelPair.GetName())
+			}
+		}
+		if len(temp) == 0 {
+			return m
+		}
+	}
+	return nil
+}
+
+func conditionLabels(eventType string, reason string, message string) map[string]string {
+	return map[string]string{
+		events.MetricLabelEventType:    eventType,
+		events.MetricLabelEventReason:  reason,
+		events.MetricLabelEventMessage: message,
+	}
+}
