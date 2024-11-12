@@ -10,9 +10,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -21,24 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-)
-
-const (
-	MetricLabelGroup           = "group"
-	MetricLabelKind            = "kind"
-	MetricLabelNamespace       = "namespace"
-	MetricLabelName            = "name"
-	MetricLabelConditionType   = "type"
-	MetricLabelConditionStatus = "status"
-	MetricLabelConditionReason = "reason"
-)
-
-const (
-	MetricNamespace      = "operator"
-	MetricSubsystem      = "status_condition"
-	TerminationSubsystem = "termination"
 )
 
 type Controller[T Object] struct {
@@ -64,7 +45,32 @@ func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 }
 
 func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	o := object.New[T]()
+	return c.reconcile(ctx, req, object.New[T]())
+}
+
+type GenericObjectController[T client.Object] struct {
+	*Controller[*unstructuredAdapter]
+}
+
+func NewGenericObjectController[T client.Object](client client.Client, eventRecorder record.EventRecorder) *GenericObjectController[T] {
+	return &GenericObjectController[T]{
+		Controller: NewController[*unstructuredAdapter](client, eventRecorder),
+	}
+}
+
+func (c *GenericObjectController[T]) Register(_ context.Context, m manager.Manager) error {
+	return controllerruntime.NewControllerManagedBy(m).
+		For(object.New[T]()).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(reflect.TypeOf(object.New[T]()).Elem().Name()))).
+		Complete(c)
+}
+
+func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	return c.reconcile(ctx, req, NewUnstructuredAdapter(object.New[T]()))
+}
+
+func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o Object) (reconcile.Result, error) {
 	gvk := object.GVK(o)
 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
@@ -208,112 +214,3 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
 }
-
-// Cardinality is limited to # objects * # conditions * # objectives
-var ConditionDuration = pmetrics.NewPrometheusHistogram(
-	metrics.Registry,
-	prometheus.HistogramOpts{
-		Namespace: MetricNamespace,
-		Subsystem: MetricSubsystem,
-		Name:      "transition_seconds",
-		Help:      "The amount of time a condition was in a given state before transitioning. e.g. Alarm := P99(Updated=False) > 5 minutes",
-	},
-	[]string{
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
-		MetricLabelConditionStatus,
-	},
-)
-
-// Cardinality is limited to # objects * # conditions
-var ConditionCount = pmetrics.NewPrometheusGauge(
-	metrics.Registry,
-	prometheus.GaugeOpts{
-		Namespace: MetricNamespace,
-		Subsystem: MetricSubsystem,
-		Name:      "count",
-		Help:      "The number of an condition for a given object, type and status. e.g. Alarm := Available=False > 0",
-	},
-	[]string{
-		MetricLabelNamespace,
-		MetricLabelName,
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
-		MetricLabelConditionStatus,
-		MetricLabelConditionReason,
-	},
-)
-
-// Cardinality is limited to # objects * # conditions
-// NOTE: This metric is based on a requeue so it won't show the current status seconds with extremely high accuracy.
-// This metric is useful for aggreations. If you need a high accuracy metric, use operator_status_condition_last_transition_time_seconds
-var ConditionCurrentStatusSeconds = pmetrics.NewPrometheusGauge(
-	metrics.Registry,
-	prometheus.GaugeOpts{
-		Namespace: MetricNamespace,
-		Subsystem: MetricSubsystem,
-		Name:      "current_status_seconds",
-		Help:      "The current amount of time in seconds that a status condition has been in a specific state. Alarm := P99(Updated=Unknown) > 5 minutes",
-	},
-	[]string{
-		MetricLabelNamespace,
-		MetricLabelName,
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
-		MetricLabelConditionStatus,
-		MetricLabelConditionReason,
-	},
-)
-
-// Cardinality is limited to # objects * # conditions
-var ConditionTransitionsTotal = pmetrics.NewPrometheusCounter(
-	metrics.Registry,
-	prometheus.CounterOpts{
-		Namespace: MetricNamespace,
-		Subsystem: MetricSubsystem,
-		Name:      "transitions_total",
-		Help:      "The count of transitions of a given object, type and status.",
-	},
-	[]string{
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
-		MetricLabelConditionStatus,
-		MetricLabelConditionReason,
-	},
-)
-
-var TerminationCurrentTimeSeconds = pmetrics.NewPrometheusGauge(
-	metrics.Registry,
-	prometheus.GaugeOpts{
-		Namespace: MetricNamespace,
-		Subsystem: TerminationSubsystem,
-		Name:      "current_time_seconds",
-		Help:      "The current amount of time in seconds that an object has been in terminating state.",
-	},
-	[]string{
-		MetricLabelNamespace,
-		MetricLabelName,
-		MetricLabelGroup,
-		MetricLabelKind,
-	},
-)
-
-var TerminationDuration = pmetrics.NewPrometheusHistogram(
-	metrics.Registry,
-	prometheus.HistogramOpts{
-		Namespace: MetricNamespace,
-		Subsystem: TerminationSubsystem,
-		Name:      "duration_seconds",
-		Help:      "The amount of time taken by an object to terminate completely.",
-	},
-	[]string{
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelNamespace,
-		MetricLabelName,
-	},
-)
