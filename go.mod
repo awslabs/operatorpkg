@@ -12,7 +12,7 @@ require (
 	github.com/prometheus/client_model v0.6.1
 	github.com/samber/lo v1.47.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/time v0.7.0
+	golang.org/x/time v0.8.0
 	k8s.io/api v0.31.2
 	k8s.io/apimachinery v0.31.2
 	k8s.io/client-go v0.31.2
