@@ -61,7 +61,7 @@ var ConditionCount = pmetrics.NewPrometheusGauge(
 
 // Cardinality is limited to # objects * # conditions
 // NOTE: This metric is based on a requeue so it won't show the current status seconds with extremely high accuracy.
-// This metric is useful for aggreations. If you need a high accuracy metric, use operator_status_condition_last_transition_time_seconds
+// This metric is useful for aggregations. If you need a high accuracy metric, use operator_status_condition_last_transition_time_seconds
 var ConditionCurrentStatusSeconds = pmetrics.NewPrometheusGauge(
 	metrics.Registry,
 	prometheus.GaugeOpts{
@@ -126,7 +126,5 @@ var TerminationDuration = pmetrics.NewPrometheusHistogram(
 	[]string{
 		MetricLabelGroup,
 		MetricLabelKind,
-		MetricLabelNamespace,
-		MetricLabelName,
 	},
 )
