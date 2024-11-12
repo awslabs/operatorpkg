@@ -138,7 +138,7 @@ func NewEntry(namespace string) Entry {
 	return Entry{
 		namespace:  namespace,
 		metrics:    []metric{},
-		dimensions: [][]string{{}},
+		dimensions: [][]string{},
 		fields:     map[string]interface{}{},
 	}
 }
