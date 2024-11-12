@@ -32,18 +32,19 @@ var _ = BeforeEach(func() {
 	recorder = record.NewFakeRecorder(10)
 	kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
+
+	status.ConditionDuration.Reset()
+	status.ConditionCount.Reset()
+	status.ConditionCurrentStatusSeconds.Reset()
+	status.ConditionTransitionsTotal.Reset()
+	status.TerminationCurrentTimeSeconds.Reset()
+	status.TerminationDuration.Reset()
 })
 
 var _ = Describe("Controller", func() {
 	var controller *status.Controller[*TestObject]
 	BeforeEach(func() {
 		controller = status.NewController[*TestObject](kubeClient, recorder)
-		status.ConditionDuration.Reset()
-		status.ConditionCount.Reset()
-		status.ConditionCurrentStatusSeconds.Reset()
-		status.ConditionTransitionsTotal.Reset()
-		status.TerminationCurrentTimeSeconds.Reset()
-		status.TerminationDuration.Reset()
 	})
 	It("should emit termination metrics when deletion timestamp is set", func() {
 		testObject := test.Object(&TestObject{})
@@ -60,7 +61,7 @@ var _ = Describe("Controller", func() {
 		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
 		ExpectReconciled(ctx, controller, testObject)
 		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
-		metric = GetMetric("operator_termination_duration_seconds", map[string]string{status.MetricLabelName: testObject.Name})
+		metric = GetMetric("operator_termination_duration_seconds", map[string]string{})
 		Expect(metric).ToNot(BeNil())
 		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 	})
@@ -363,7 +364,7 @@ var _ = Describe("Generic Controller", func() {
 		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
 		ExpectReconciled(ctx, genericController, testObject)
 		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
-		metric = GetMetric("operator_termination_duration_seconds", map[string]string{status.MetricLabelName: testObject.Name})
+		metric = GetMetric("operator_termination_duration_seconds", map[string]string{})
 		Expect(metric).ToNot(BeNil())
 		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 	})

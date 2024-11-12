@@ -95,10 +95,8 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			})
 			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
 				TerminationDuration.Observe(time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{
-					MetricLabelGroup:     gvk.Group,
-					MetricLabelKind:      gvk.Kind,
-					MetricLabelNamespace: req.Namespace,
-					MetricLabelName:      req.Name,
+					MetricLabelGroup: gvk.Group,
+					MetricLabelKind:  gvk.Kind,
 				})
 			}
 			return reconcile.Result{}, nil
