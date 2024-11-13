@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/awslabs/operatorpkg/singleton"
@@ -16,6 +17,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
+	prometheus "github.com/prometheus/client_model/go"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -205,4 +207,25 @@ func expectCleanedUp(ctx context.Context, c client.Client, force bool, objectLis
 		}(objectList)
 	}
 	wg.Wait()
+}
+
+// GetMetric attempts to find a metric given name and labels
+// If no metric is found, the *prometheus.Metric will be nil
+func GetMetric(name string, labels ...map[string]string) *prometheus.Metric {
+	family, found := lo.Find(lo.Must(metrics.Registry.Gather()), func(family *prometheus.MetricFamily) bool { return family.GetName() == name })
+	if !found {
+		return nil
+	}
+	for _, m := range family.Metric {
+		temp := lo.Assign(labels...)
+		for _, labelPair := range m.Label {
+			if v, ok := temp[labelPair.GetName()]; ok && v == labelPair.GetValue() {
+				delete(temp, labelPair.GetName())
+			}
+		}
+		if len(temp) == 0 {
+			return m
+		}
+	}
+	return nil
 }

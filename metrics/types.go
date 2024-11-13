@@ -1,5 +1,13 @@
 package metrics
 
+const (
+	Namespace   = "operator"
+	LabelGroup  = "group"
+	LabelKind   = "kind"
+	LabelType   = "type"
+	LabelReason = "reason"
+)
+
 type ObservationMetric interface {
 	Observe(v float64, labels map[string]string)
 	Delete(labels map[string]string)

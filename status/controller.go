@@ -10,6 +10,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
@@ -76,27 +77,27 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
 			ConditionCount.DeletePartialMatch(map[string]string{
-				MetricLabelGroup:     gvk.Group,
-				MetricLabelKind:      gvk.Kind,
+				pmetrics.LabelGroup:  gvk.Group,
+				pmetrics.LabelKind:   gvk.Kind,
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
 			ConditionCurrentStatusSeconds.DeletePartialMatch(map[string]string{
-				MetricLabelGroup:     gvk.Group,
-				MetricLabelKind:      gvk.Kind,
+				pmetrics.LabelGroup:  gvk.Group,
+				pmetrics.LabelKind:   gvk.Kind,
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
 			TerminationCurrentTimeSeconds.DeletePartialMatch(map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-				MetricLabelGroup:     gvk.Group,
-				MetricLabelKind:      gvk.Kind,
+				pmetrics.LabelGroup:  gvk.Group,
+				pmetrics.LabelKind:   gvk.Kind,
 			})
 			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
 				TerminationDuration.Observe(time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{
-					MetricLabelGroup: gvk.Group,
-					MetricLabelKind:  gvk.Kind,
+					pmetrics.LabelGroup: gvk.Group,
+					pmetrics.LabelKind:  gvk.Kind,
 				})
 			}
 			return reconcile.Result{}, nil
@@ -114,52 +115,52 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
 		ConditionCount.Set(1, map[string]string{
-			MetricLabelGroup:           gvk.Group,
-			MetricLabelKind:            gvk.Kind,
+			pmetrics.LabelGroup:        gvk.Group,
+			pmetrics.LabelKind:         gvk.Kind,
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
-			MetricLabelConditionType:   condition.Type,
+			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
-			MetricLabelConditionReason: condition.Reason,
+			pmetrics.LabelReason:       condition.Reason,
 		})
 		ConditionCurrentStatusSeconds.Set(time.Since(condition.LastTransitionTime.Time).Seconds(), map[string]string{
-			MetricLabelGroup:           gvk.Group,
-			MetricLabelKind:            gvk.Kind,
+			pmetrics.LabelGroup:        gvk.Group,
+			pmetrics.LabelKind:         gvk.Kind,
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
-			MetricLabelConditionType:   condition.Type,
+			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
-			MetricLabelConditionReason: condition.Reason,
+			pmetrics.LabelReason:       condition.Reason,
 		})
 	}
 	if o.GetDeletionTimestamp() != nil {
 		TerminationCurrentTimeSeconds.Set(time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
 			MetricLabelNamespace: req.Namespace,
 			MetricLabelName:      req.Name,
-			MetricLabelGroup:     gvk.Group,
-			MetricLabelKind:      gvk.Kind,
+			pmetrics.LabelGroup:  gvk.Group,
+			pmetrics.LabelKind:   gvk.Kind,
 		})
 		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
 	}
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
 			ConditionCount.Delete(map[string]string{
-				MetricLabelGroup:           gvk.Group,
-				MetricLabelKind:            gvk.Kind,
+				pmetrics.LabelGroup:        gvk.Group,
+				pmetrics.LabelKind:         gvk.Kind,
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
-				MetricLabelConditionType:   observedCondition.Type,
+				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
-				MetricLabelConditionReason: observedCondition.Reason,
+				pmetrics.LabelReason:       observedCondition.Reason,
 			})
 			ConditionCurrentStatusSeconds.Delete(map[string]string{
-				MetricLabelGroup:           gvk.Group,
-				MetricLabelKind:            gvk.Kind,
+				pmetrics.LabelGroup:        gvk.Group,
+				pmetrics.LabelKind:         gvk.Kind,
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
-				MetricLabelConditionType:   observedCondition.Type,
+				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
-				MetricLabelConditionReason: observedCondition.Reason,
+				pmetrics.LabelReason:       observedCondition.Reason,
 			})
 		}
 	}
@@ -186,20 +187,20 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 		}
 		// A condition transitions if it either didn't exist before or it has changed
 		ConditionTransitionsTotal.Inc(map[string]string{
-			MetricLabelGroup:           gvk.Group,
-			MetricLabelKind:            gvk.Kind,
-			MetricLabelConditionType:   condition.Type,
+			pmetrics.LabelGroup:        gvk.Group,
+			pmetrics.LabelKind:         gvk.Kind,
+			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
-			MetricLabelConditionReason: condition.Reason,
+			pmetrics.LabelReason:       condition.Reason,
 		})
 		if observedCondition == nil {
 			continue
 		}
 		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
 		ConditionDuration.Observe(duration, map[string]string{
-			MetricLabelGroup:           gvk.Group,
-			MetricLabelKind:            gvk.Kind,
-			MetricLabelConditionType:   observedCondition.Type,
+			pmetrics.LabelGroup:        gvk.Group,
+			pmetrics.LabelKind:         gvk.Kind,
+			pmetrics.LabelType:         observedCondition.Type,
 			MetricLabelConditionStatus: string(observedCondition.Status),
 		})
 		c.eventRecorder.Event(o, v1.EventTypeNormal, condition.Type, fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s%s",

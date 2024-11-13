@@ -7,17 +7,12 @@ import (
 )
 
 const (
-	MetricLabelGroup           = "group"
-	MetricLabelKind            = "kind"
 	MetricLabelNamespace       = "namespace"
 	MetricLabelName            = "name"
-	MetricLabelConditionType   = "type"
 	MetricLabelConditionStatus = "status"
-	MetricLabelConditionReason = "reason"
 )
 
 const (
-	MetricNamespace      = "operator"
 	MetricSubsystem      = "status_condition"
 	TerminationSubsystem = "termination"
 )
@@ -26,15 +21,15 @@ const (
 var ConditionDuration = pmetrics.NewPrometheusHistogram(
 	metrics.Registry,
 	prometheus.HistogramOpts{
-		Namespace: MetricNamespace,
+		Namespace: pmetrics.Namespace,
 		Subsystem: MetricSubsystem,
 		Name:      "transition_seconds",
 		Help:      "The amount of time a condition was in a given state before transitioning. e.g. Alarm := P99(Updated=False) > 5 minutes",
 	},
 	[]string{
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
+		pmetrics.LabelGroup,
+		pmetrics.LabelKind,
+		pmetrics.LabelType,
 		MetricLabelConditionStatus,
 	},
 )
@@ -43,7 +38,7 @@ var ConditionDuration = pmetrics.NewPrometheusHistogram(
 var ConditionCount = pmetrics.NewPrometheusGauge(
 	metrics.Registry,
 	prometheus.GaugeOpts{
-		Namespace: MetricNamespace,
+		Namespace: pmetrics.Namespace,
 		Subsystem: MetricSubsystem,
 		Name:      "count",
 		Help:      "The number of an condition for a given object, type and status. e.g. Alarm := Available=False > 0",
@@ -51,11 +46,11 @@ var ConditionCount = pmetrics.NewPrometheusGauge(
 	[]string{
 		MetricLabelNamespace,
 		MetricLabelName,
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
+		pmetrics.LabelGroup,
+		pmetrics.LabelKind,
+		pmetrics.LabelType,
 		MetricLabelConditionStatus,
-		MetricLabelConditionReason,
+		pmetrics.LabelReason,
 	},
 )
 
@@ -65,7 +60,7 @@ var ConditionCount = pmetrics.NewPrometheusGauge(
 var ConditionCurrentStatusSeconds = pmetrics.NewPrometheusGauge(
 	metrics.Registry,
 	prometheus.GaugeOpts{
-		Namespace: MetricNamespace,
+		Namespace: pmetrics.Namespace,
 		Subsystem: MetricSubsystem,
 		Name:      "current_status_seconds",
 		Help:      "The current amount of time in seconds that a status condition has been in a specific state. Alarm := P99(Updated=Unknown) > 5 minutes",
@@ -73,11 +68,11 @@ var ConditionCurrentStatusSeconds = pmetrics.NewPrometheusGauge(
 	[]string{
 		MetricLabelNamespace,
 		MetricLabelName,
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
+		pmetrics.LabelGroup,
+		pmetrics.LabelKind,
+		pmetrics.LabelType,
 		MetricLabelConditionStatus,
-		MetricLabelConditionReason,
+		pmetrics.LabelReason,
 	},
 )
 
@@ -85,24 +80,24 @@ var ConditionCurrentStatusSeconds = pmetrics.NewPrometheusGauge(
 var ConditionTransitionsTotal = pmetrics.NewPrometheusCounter(
 	metrics.Registry,
 	prometheus.CounterOpts{
-		Namespace: MetricNamespace,
+		Namespace: pmetrics.Namespace,
 		Subsystem: MetricSubsystem,
 		Name:      "transitions_total",
 		Help:      "The count of transitions of a given object, type and status.",
 	},
 	[]string{
-		MetricLabelGroup,
-		MetricLabelKind,
-		MetricLabelConditionType,
+		pmetrics.LabelGroup,
+		pmetrics.LabelKind,
+		pmetrics.LabelType,
 		MetricLabelConditionStatus,
-		MetricLabelConditionReason,
+		pmetrics.LabelReason,
 	},
 )
 
 var TerminationCurrentTimeSeconds = pmetrics.NewPrometheusGauge(
 	metrics.Registry,
 	prometheus.GaugeOpts{
-		Namespace: MetricNamespace,
+		Namespace: pmetrics.Namespace,
 		Subsystem: TerminationSubsystem,
 		Name:      "current_time_seconds",
 		Help:      "The current amount of time in seconds that an object has been in terminating state.",
@@ -110,21 +105,21 @@ var TerminationCurrentTimeSeconds = pmetrics.NewPrometheusGauge(
 	[]string{
 		MetricLabelNamespace,
 		MetricLabelName,
-		MetricLabelGroup,
-		MetricLabelKind,
+		pmetrics.LabelGroup,
+		pmetrics.LabelKind,
 	},
 )
 
 var TerminationDuration = pmetrics.NewPrometheusHistogram(
 	metrics.Registry,
 	prometheus.HistogramOpts{
-		Namespace: MetricNamespace,
+		Namespace: pmetrics.Namespace,
 		Subsystem: TerminationSubsystem,
 		Name:      "duration_seconds",
 		Help:      "The amount of time taken by an object to terminate completely.",
 	},
 	[]string{
-		MetricLabelGroup,
-		MetricLabelKind,
+		pmetrics.LabelGroup,
+		pmetrics.LabelKind,
 	},
 )
