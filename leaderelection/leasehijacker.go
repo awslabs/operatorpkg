@@ -15,17 +15,35 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// LeaseHijacker implements lease stealing to accelerate development workflows
-// TODO: migrate to https://kubernetes.io/docs/concepts/cluster-administration/coordinated-leader-election/ when it's past alpha.
+/*
+LeaseHijacker implements lease stealing to accelerate development workflows.
+When starting your controller manager, your local process will forcibly
+become leader. This is useful when developing locally against a cluster
+which already has a controller running in it
+
+TODO: migrate to https://kubernetes.io/docs/concepts/cluster-administration/coordinated-leader-election/ when it's past alpha.
+
+Include this in your controller manager as follows:
+```
+controllerruntime.NewManager(..., controllerruntime.Options{
+
+// Used if HIJACK_LEASE is not set
+LeaderElectionID:                    name,
+LeaderElectionNamespace:             "namespace",
+
+// Used if HIJACK_LEASE=true
+LeaderElectionResourceLockInterface: leaderelection.LeaseHijacker(...)
+}
+```
+*/
 func LeaseHijacker(ctx context.Context, config *rest.Config, namespace string, name string) resourcelock.Interface {
 	if os.Getenv("HIJACK_LEASE") != "true" {
 		return nil // If not set, fallback to other controller-runtime lease settings
 	}
-	id := fmt.Sprintf("%s_%s", lo.Must(os.Hostname()), uuid.NewUUID())
 	log.FromContext(ctx).Info("hijacking lease", "namespace", namespace, "name", name)
 	kubeClient := coordinationv1client.NewForConfigOrDie(config)
 	lease := lo.Must(kubeClient.Leases(namespace).Get(ctx, name, metav1.GetOptions{}))
-	lease.Spec.HolderIdentity = lo.ToPtr(id)
+	lease.Spec.HolderIdentity = lo.ToPtr(fmt.Sprintf("%s_%s", lo.Must(os.Hostname()), uuid.NewUUID()))
 	lease.Spec.AcquireTime = lo.ToPtr(metav1.NowMicro())
 	lo.Must(kubeClient.Leases(namespace).Update(ctx, lease, metav1.UpdateOptions{}))
 	return lo.Must(resourcelock.New(
@@ -34,6 +52,6 @@ func LeaseHijacker(ctx context.Context, config *rest.Config, namespace string, n
 		name,
 		corev1client.NewForConfigOrDie(config),
 		coordinationv1client.NewForConfigOrDie(config),
-		resourcelock.ResourceLockConfig{Identity: id},
+		resourcelock.ResourceLockConfig{Identity: *lease.Spec.HolderIdentity},
 	))
 }
