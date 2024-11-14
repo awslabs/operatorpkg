@@ -9,9 +9,12 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
+	"github.com/awslabs/operatorpkg/option"
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -24,16 +27,52 @@ import (
 )
 
 type Controller[T Object] struct {
-	kubeClient         client.Client
-	eventRecorder      record.EventRecorder
-	observedConditions sync.Map // map[reconcile.Request]ConditionSet
-	terminatingObjects sync.Map // map[reconcile.Request]DeletionTimestamp
+	gvk                           schema.GroupVersionKind
+	kubeClient                    client.Client
+	eventRecorder                 record.EventRecorder
+	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
+	terminatingObjects            sync.Map // map[reconcile.Request]DeletionTimestamp
+	emitDeprecatedMetrics         bool
+	ConditionDuration             pmetrics.ObservationMetric
+	ConditionCount                pmetrics.GaugeMetric
+	ConditionCurrentStatusSeconds pmetrics.GaugeMetric
+	ConditionTransitionsTotal     pmetrics.CounterMetric
+	TerminationCurrentTimeSeconds pmetrics.GaugeMetric
+	TerminationDuration           pmetrics.ObservationMetric
 }
 
-func NewController[T Object](client client.Client, eventRecorder record.EventRecorder) *Controller[T] {
+type Option struct {
+	// Current list of deprecated metrics
+	// - operator_status_condition_transitions_total
+	// - operator_status_condition_transition_seconds
+	// - operator_status_condition_current_status_seconds
+	// - operator_status_condition_count
+	// - operator_termination_current_time_seconds
+	// - operator_termination_duration_seconds
+	EmitDeprecatedMetrics bool
+}
+
+func EmitDeprecatedMetrics(o *Option) {
+	o.EmitDeprecatedMetrics = true
+}
+
+func NewController[T Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *Controller[T] {
+	options := option.Resolve(opts...)
+	obj := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(runtime.Object)
+	obj.GetObjectKind().SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+	gvk := object.GVK(obj)
+
 	return &Controller[T]{
-		kubeClient:    client,
-		eventRecorder: eventRecorder,
+		gvk:                           gvk,
+		kubeClient:                    client,
+		eventRecorder:                 eventRecorder,
+		emitDeprecatedMetrics:         options.EmitDeprecatedMetrics,
+		ConditionDuration:             conditionDurationMetric(strings.ToLower(gvk.Kind)),
+		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind)),
+		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind)),
+		ConditionTransitionsTotal:     conditionTransitionsTotalMetric(strings.ToLower(gvk.Kind)),
+		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind)),
+		TerminationDuration:           terminationDurationMetric(strings.ToLower(gvk.Kind)),
 	}
 }
 
@@ -41,7 +80,7 @@ func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		For(object.New[T]()).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
-		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(reflect.TypeOf(object.New[T]()).Elem().Name()))).
+		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(c.gvk.Kind))).
 		Complete(c)
 }
 
@@ -50,12 +89,12 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 }
 
 type GenericObjectController[T client.Object] struct {
-	*Controller[*unstructuredAdapter]
+	*Controller[*unstructuredAdapter[T]]
 }
 
-func NewGenericObjectController[T client.Object](client client.Client, eventRecorder record.EventRecorder) *GenericObjectController[T] {
+func NewGenericObjectController[T client.Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *GenericObjectController[T] {
 	return &GenericObjectController[T]{
-		Controller: NewController[*unstructuredAdapter](client, eventRecorder),
+		Controller: NewController[*unstructuredAdapter[T]](client, eventRecorder, opts...),
 	}
 }
 
@@ -68,37 +107,26 @@ func (c *GenericObjectController[T]) Register(_ context.Context, m manager.Manag
 }
 
 func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	return c.reconcile(ctx, req, NewUnstructuredAdapter(object.New[T]()))
+	return c.reconcile(ctx, req, NewUnstructuredAdapter[T](object.New[T]()))
 }
 
 func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o Object) (reconcile.Result, error) {
-	gvk := object.GVK(o)
-
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
-			ConditionCount.DeletePartialMatch(map[string]string{
-				pmetrics.LabelGroup:  gvk.Group,
-				pmetrics.LabelKind:   gvk.Kind,
+			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
-			ConditionCurrentStatusSeconds.DeletePartialMatch(map[string]string{
-				pmetrics.LabelGroup:  gvk.Group,
-				pmetrics.LabelKind:   gvk.Kind,
+			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
-			TerminationCurrentTimeSeconds.DeletePartialMatch(map[string]string{
+			c.deletePartialMatchGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-				pmetrics.LabelGroup:  gvk.Group,
-				pmetrics.LabelKind:   gvk.Kind,
 			})
 			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
-				TerminationDuration.Observe(time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{
-					pmetrics.LabelGroup: gvk.Group,
-					pmetrics.LabelKind:  gvk.Kind,
-				})
+				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{})
 			}
 			return reconcile.Result{}, nil
 		}
@@ -114,18 +142,14 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 
 	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
-		ConditionCount.Set(1, map[string]string{
-			pmetrics.LabelGroup:        gvk.Group,
-			pmetrics.LabelKind:         gvk.Kind,
+		c.setGaugeMetric(c.ConditionCount, ConditionCount, 1, map[string]string{
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
 		})
-		ConditionCurrentStatusSeconds.Set(time.Since(condition.LastTransitionTime.Time).Seconds(), map[string]string{
-			pmetrics.LabelGroup:        gvk.Group,
-			pmetrics.LabelKind:         gvk.Kind,
+		c.setGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, time.Since(condition.LastTransitionTime.Time).Seconds(), map[string]string{
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
 			pmetrics.LabelType:         condition.Type,
@@ -134,28 +158,22 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 		})
 	}
 	if o.GetDeletionTimestamp() != nil {
-		TerminationCurrentTimeSeconds.Set(time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
+		c.setGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
 			MetricLabelNamespace: req.Namespace,
 			MetricLabelName:      req.Name,
-			pmetrics.LabelGroup:  gvk.Group,
-			pmetrics.LabelKind:   gvk.Kind,
 		})
 		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
 	}
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
-			ConditionCount.Delete(map[string]string{
-				pmetrics.LabelGroup:        gvk.Group,
-				pmetrics.LabelKind:         gvk.Kind,
+			c.deleteGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
 			})
-			ConditionCurrentStatusSeconds.Delete(map[string]string{
-				pmetrics.LabelGroup:        gvk.Group,
-				pmetrics.LabelKind:         gvk.Kind,
+			c.deleteGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
@@ -186,9 +204,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			continue
 		}
 		// A condition transitions if it either didn't exist before or it has changed
-		ConditionTransitionsTotal.Inc(map[string]string{
-			pmetrics.LabelGroup:        gvk.Group,
-			pmetrics.LabelKind:         gvk.Kind,
+		c.incCounterMetric(c.ConditionTransitionsTotal, ConditionTransitionsTotal, map[string]string{
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
@@ -197,9 +213,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			continue
 		}
 		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
-		ConditionDuration.Observe(duration, map[string]string{
-			pmetrics.LabelGroup:        gvk.Group,
-			pmetrics.LabelKind:         gvk.Kind,
+		c.observeHistogram(c.ConditionDuration, ConditionDuration, duration, map[string]string{
 			pmetrics.LabelType:         observedCondition.Type,
 			MetricLabelConditionStatus: string(observedCondition.Status),
 		})
@@ -212,4 +226,49 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 		))
 	}
 	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
+}
+
+func (c *Controller[T]) incCounterMetric(current pmetrics.CounterMetric, deprecated pmetrics.CounterMetric, labels map[string]string) {
+	current.Inc(labels)
+	if c.emitDeprecatedMetrics {
+		labels[pmetrics.LabelKind] = c.gvk.Kind
+		labels[pmetrics.LabelGroup] = c.gvk.Group
+		deprecated.Inc(labels)
+	}
+}
+
+func (c *Controller[T]) setGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, value float64, labels map[string]string) {
+	current.Set(value, labels)
+	if c.emitDeprecatedMetrics {
+		labels[pmetrics.LabelKind] = c.gvk.Kind
+		labels[pmetrics.LabelGroup] = c.gvk.Group
+		deprecated.Set(value, labels)
+	}
+}
+
+func (c *Controller[T]) deleteGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, labels map[string]string) {
+	current.Delete(labels)
+	if c.emitDeprecatedMetrics {
+		labels[pmetrics.LabelKind] = c.gvk.Kind
+		labels[pmetrics.LabelGroup] = c.gvk.Group
+		deprecated.Delete(labels)
+	}
+}
+
+func (c *Controller[T]) deletePartialMatchGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, labels map[string]string) {
+	current.DeletePartialMatch(labels)
+	if c.emitDeprecatedMetrics {
+		labels[pmetrics.LabelKind] = c.gvk.Kind
+		labels[pmetrics.LabelGroup] = c.gvk.Group
+		deprecated.DeletePartialMatch(labels)
+	}
+}
+
+func (c *Controller[T]) observeHistogram(current pmetrics.ObservationMetric, deprecated pmetrics.ObservationMetric, value float64, labels map[string]string) {
+	current.Observe(value, labels)
+	if c.emitDeprecatedMetrics {
+		labels[pmetrics.LabelKind] = c.gvk.Kind
+		labels[pmetrics.LabelGroup] = c.gvk.Group
+		deprecated.Observe(value, labels)
+	}
 }
