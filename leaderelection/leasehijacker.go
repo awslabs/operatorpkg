@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,12 +41,21 @@ func LeaseHijacker(ctx context.Context, config *rest.Config, namespace string, n
 	if os.Getenv("HIJACK_LEASE") != "true" {
 		return nil // If not set, fallback to other controller-runtime lease settings
 	}
-	log.FromContext(ctx).Info("hijacking lease", "namespace", namespace, "name", name)
 	kubeClient := coordinationv1client.NewForConfigOrDie(config)
 	lease := lo.Must(kubeClient.Leases(namespace).Get(ctx, name, metav1.GetOptions{}))
+
+	untilElection := time.Until(lease.Spec.RenewTime.Add(time.Duration(*lease.Spec.LeaseDurationSeconds) * time.Second))
+
 	lease.Spec.HolderIdentity = lo.ToPtr(fmt.Sprintf("%s_%s", lo.Must(os.Hostname()), uuid.NewUUID()))
 	lease.Spec.AcquireTime = lo.ToPtr(metav1.NowMicro())
+	lease.Spec.RenewTime = lo.ToPtr(metav1.NowMicro())
+	*lease.Spec.LeaseDurationSeconds += 5 // Make our lease longer to guarantee we win the next election
+	*lease.Spec.LeaseTransitions += 1
 	lo.Must(kubeClient.Leases(namespace).Update(ctx, lease, metav1.UpdateOptions{}))
+
+	log.FromContext(ctx).Info(fmt.Sprintf("hijacked lease, waiting %s for election", untilElection), "namespace", namespace, "name", name)
+	time.Sleep(untilElection)
+
 	return lo.Must(resourcelock.New(
 		resourcelock.LeasesResourceLock,
 		namespace,
