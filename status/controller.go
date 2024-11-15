@@ -31,7 +31,6 @@ type Controller[T Object] struct {
 	kubeClient                    client.Client
 	eventRecorder                 record.EventRecorder
 	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
-	observedFinalizers            sync.Map // map[reconcile.Request]Finalizer
 	terminatingObjects            sync.Map // map[reconcile.Request]DeletionTimestamp
 	emitDeprecatedMetrics         bool
 	ConditionDuration             pmetrics.ObservationMetric
@@ -129,31 +128,11 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
 				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{})
 			}
-			if finalizers, ok := c.observedFinalizers.LoadAndDelete(req); ok {
-				for _, finalizer := range finalizers.([]string) {
-					c.eventRecorder.Event(o, v1.EventTypeNormal, "Finalized", fmt.Sprintf("Finalized %s", finalizer))
-				}
-			}
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, fmt.Errorf("getting object, %w", err)
 	}
 
-	// Detect and record terminations
-	observedFinalizers, _ := c.observedFinalizers.Swap(req, o.GetFinalizers())
-	for _, finalizer := range lo.Without(observedFinalizers.([]string), o.GetFinalizers()...) {
-		c.eventRecorder.Event(o, v1.EventTypeNormal, "Finalized", fmt.Sprintf("Finalized %s", finalizer))
-	}
-
-	if o.GetDeletionTimestamp() != nil {
-		c.setGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
-			MetricLabelNamespace: req.Namespace,
-			MetricLabelName:      req.Name,
-		})
-		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
-	}
-
-	// Detect and record condition counts
 	currentConditions := o.StatusConditions()
 	observedConditions := ConditionSet{}
 	if v, ok := c.observedConditions.Load(req); ok {
@@ -161,6 +140,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	}
 	c.observedConditions.Store(req, currentConditions)
 
+	// Detect and record condition counts
 	for _, condition := range o.GetConditions() {
 		c.setGaugeMetric(c.ConditionCount, ConditionCount, 1, map[string]string{
 			MetricLabelNamespace:       req.Namespace,
@@ -177,7 +157,13 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			pmetrics.LabelReason:       condition.Reason,
 		})
 	}
-
+	if o.GetDeletionTimestamp() != nil {
+		c.setGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
+			MetricLabelNamespace: req.Namespace,
+			MetricLabelName:      req.Name,
+		})
+		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
+	}
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
 			c.deleteGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
