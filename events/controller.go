@@ -54,8 +54,6 @@ func (c *Controller[T]) Reconcile(ctx context.Context, event *v1.Event) (reconci
 	// since we don't duplicate metrics on controller restart or lease handover
 	if c.startTime.Before(event.LastTimestamp.Time) {
 		c.EventCount.Inc(map[string]string{
-			pmetrics.LabelGroup:  c.gvk.Group,
-			pmetrics.LabelKind:   event.InvolvedObject.Kind,
 			pmetrics.LabelType:   event.Type,
 			pmetrics.LabelReason: event.Reason,
 		})
