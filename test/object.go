@@ -33,6 +33,7 @@ func Object[T client.Object](base T, overrides ...T) T {
 	for _, src := range append([]T{base}, overrides...) {
 		lo.Must0(mergo.Merge(dest, src, mergo.WithOverride))
 	}
+	dest.SetCreationTimestamp(metav1.Now())
 	return dest
 }
 

@@ -10,7 +10,6 @@ import (
 	"github.com/awslabs/operatorpkg/status"
 	"github.com/awslabs/operatorpkg/test"
 	. "github.com/awslabs/operatorpkg/test/expectations"
-	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,7 +43,7 @@ var _ = Describe("Controller", func() {
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
 		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
+		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {
@@ -517,6 +516,42 @@ var _ = Describe("Controller", func() {
 			}()
 		}
 	})
+	It("should set LastTransitionTime for status conditions on initialization to CreationTimestamp", func() {
+		testObject := test.Object(&test.CustomObject{})
+		testObject.StatusConditions() // initialize conditions after applying and setting CreationTimestamp
+
+		Expect(testObject.StatusConditions().Get(test.ConditionTypeFoo).LastTransitionTime.Time).To(Equal(testObject.GetCreationTimestamp().Time))
+		Expect(testObject.StatusConditions().Get(test.ConditionTypeBar).LastTransitionTime.Time).To(Equal(testObject.GetCreationTimestamp().Time))
+		Expect(testObject.StatusConditions().Get(status.ConditionReady).LastTransitionTime.Time).To(Equal(testObject.GetCreationTimestamp().Time))
+	})
+	It("should consider status conditions that aren't set as unknown", func() {
+		testObject := test.Object(&test.CustomObject{})
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo) // initialize all conditions, set Foo to true
+
+		// conditions not set
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
+	})
 })
 
 var _ = Describe("Generic Controller", func() {
@@ -524,7 +559,7 @@ var _ = Describe("Generic Controller", func() {
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
 		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-		ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
+		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		genericController = status.NewGenericObjectController[*TestGenericObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {

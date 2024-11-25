@@ -54,9 +54,16 @@ type ConditionSet struct {
 func (r ConditionTypes) For(object Object) ConditionSet {
 	cs := ConditionSet{object: object, ConditionTypes: r}
 	// Set known conditions Unknown if not set.
-	for _, t := range append(r.dependents, r.root) {
+	// Set the root condition first to get consistent timing for LastTransitionTime
+	for _, t := range append([]string{r.root}, r.dependents...) {
 		if cs.Get(t) == nil {
-			cs.SetUnknown(t)
+			cs.Set(Condition{
+				Type:               t,
+				Status:             metav1.ConditionUnknown,
+				Reason:             "AwaitingReconciliation",
+				Message:            "object is awaiting reconciliation",
+				LastTransitionTime: object.GetCreationTimestamp(),
+			})
 		}
 	}
 	return cs
@@ -99,12 +106,19 @@ func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
 	return true
 }
 
+func (c ConditionSet) IsNormalCondition(t string) bool {
+	return t == c.root || lo.Contains(c.dependents, t)
+}
+
 // Set sets or updates the Condition on Conditions for Condition.Type.
 // If there is an update, Conditions are stored back sorted.
 func (c ConditionSet) Set(condition Condition) (modified bool) {
 	conditionType := condition.Type
 	var conditions []Condition
-	condition.LastTransitionTime = metav1.Now()
+	// If we get passed a LastTransitionTime, we should respect it
+	if condition.LastTransitionTime.IsZero() {
+		condition.LastTransitionTime = metav1.Now()
+	}
 	condition.ObservedGeneration = c.object.GetGeneration()
 	for _, cond := range c.object.GetConditions() {
 		if cond.Type != conditionType {
@@ -143,7 +157,7 @@ func (c ConditionSet) Clear(t string) error {
 		return nil
 	}
 	// Normal conditions are not handled as they can't be nil
-	if t == c.root || lo.Contains(c.dependents, t) {
+	if c.IsNormalCondition(t) {
 		return fmt.Errorf("clearing normal conditions not implemented")
 	}
 	cond := c.Get(t)
