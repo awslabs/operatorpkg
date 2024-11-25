@@ -54,7 +54,8 @@ type ConditionSet struct {
 func (r ConditionTypes) For(object Object) ConditionSet {
 	cs := ConditionSet{object: object, ConditionTypes: r}
 	// Set known conditions Unknown if not set.
-	for _, t := range append(r.dependents, r.root) {
+	// Set the root condition first to get consistent timing for LastTransitionTime
+	for _, t := range append([]string{r.root}, r.dependents...) {
 		if cs.Get(t) == nil {
 			cs.SetUnknown(t)
 		}
@@ -99,23 +100,39 @@ func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
 	return true
 }
 
+func (c ConditionSet) IsDependentCondition(t string) bool {
+	return t == c.root || lo.Contains(c.dependents, t)
+}
+
 // Set sets or updates the Condition on Conditions for Condition.Type.
 // If there is an update, Conditions are stored back sorted.
 func (c ConditionSet) Set(condition Condition) (modified bool) {
-	conditionType := condition.Type
 	var conditions []Condition
-	condition.LastTransitionTime = metav1.Now()
+	var foundCondition bool
+
 	condition.ObservedGeneration = c.object.GetGeneration()
 	for _, cond := range c.object.GetConditions() {
-		if cond.Type != conditionType {
+		if cond.Type != condition.Type {
 			conditions = append(conditions, cond)
 		} else {
-			if condition.Status == cond.Status && !cond.LastTransitionTime.IsZero() {
+			foundCondition = true
+			if condition.Status == cond.Status {
 				condition.LastTransitionTime = cond.LastTransitionTime
+			} else {
+				condition.LastTransitionTime = metav1.Now()
 			}
 			if reflect.DeepEqual(condition, cond) {
 				return false
 			}
+		}
+	}
+	if !foundCondition {
+		// Dependent conditions should always be set, so if it's not found, that means
+		// that we are initializing the condition type, and it's last "transition" was object creation
+		if c.IsDependentCondition(condition.Type) {
+			condition.LastTransitionTime = c.object.GetCreationTimestamp()
+		} else {
+			condition.LastTransitionTime = metav1.Now()
 		}
 	}
 	conditions = append(conditions, condition)
@@ -130,21 +147,21 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 	c.object.SetConditions(conditions)
 
 	// Recompute the root condition after setting any other condition
-	c.recomputeRootCondition(conditionType)
+	c.recomputeRootCondition(condition.Type)
 	return true
 }
 
-// Clear removes the abnormal condition that matches the ConditionType
-// Not implemented for normal conditions
+// Clear removes the independent condition that matches the ConditionType
+// Not implemented for dependent conditions
 func (c ConditionSet) Clear(t string) error {
 	var conditions []Condition
 
 	if c.object == nil {
 		return nil
 	}
-	// Normal conditions are not handled as they can't be nil
-	if t == c.root || lo.Contains(c.dependents, t) {
-		return fmt.Errorf("clearing normal conditions not implemented")
+	// Dependent conditions are not handled as they can't be nil
+	if c.IsDependentCondition(t) {
+		return fmt.Errorf("clearing dependent conditions not implemented")
 	}
 	cond := c.Get(t)
 	if cond == nil {

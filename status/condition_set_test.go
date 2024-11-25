@@ -13,8 +13,7 @@ import (
 
 var _ = Describe("Conditions", func() {
 	It("should correctly toggle conditions", func() {
-		testObject := test.CustomObject{}
-		testObject.Generation = 1
+		testObject := test.Object(&test.CustomObject{})
 		// Conditions should be initialized
 		conditions := testObject.StatusConditions()
 		Expect(conditions.Get(test.ConditionTypeFoo).GetStatus()).To(Equal(metav1.ConditionUnknown))

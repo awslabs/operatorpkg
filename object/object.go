@@ -10,8 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/dump"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/kubernetes/pkg/util/hash"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/yaml"
@@ -56,6 +56,7 @@ func Unmarshal[T any](raw []byte) *T {
 
 func Hash(o any) string {
 	h := fnv.New64a()
-	hash.DeepHashObject(h, o)
-	return strconv.FormatUint(uint64(h.Sum64()), 10)
+	h.Reset()
+	fmt.Fprintf(h, "%v", dump.ForHash(o))
+	return strconv.FormatUint(h.Sum64(), 10)
 }

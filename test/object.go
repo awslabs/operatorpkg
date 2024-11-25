@@ -29,10 +29,12 @@ func Object[T client.Object](base T, overrides ...T) T {
 	dest := reflect.New(reflect.TypeOf(base).Elem()).Interface().(T)
 	dest.SetName(RandomName())
 	dest.SetNamespace(Namespace.Name)
+	dest.SetGeneration(1)
 	dest.SetLabels(lo.Assign(dest.GetLabels(), map[string]string{DiscoveryLabel: dest.GetName()}))
 	for _, src := range append([]T{base}, overrides...) {
 		lo.Must0(mergo.Merge(dest, src, mergo.WithOverride))
 	}
+	dest.SetCreationTimestamp(metav1.Now())
 	return dest
 }
 
