@@ -225,27 +225,17 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
 		})
-		var duration time.Duration
-		var status metav1.ConditionStatus
 		if observedCondition == nil {
-			// We only treat the CreationTimestamp as the LastTransitionTime for normal conditions
-			// We can't know the LastTransitionTime if the condition is absent for abnormal conditions
-			if !o.StatusConditions().IsNormalCondition(condition.Type) {
-				continue
-			}
-			duration = condition.LastTransitionTime.Time.Sub(o.GetCreationTimestamp().Time)
-			status = metav1.ConditionUnknown
-		} else {
-			duration = condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time)
-			status = observedCondition.Status
+			continue
 		}
-		c.observeHistogram(c.ConditionDuration, ConditionDuration, duration.Seconds(), map[string]string{
-			pmetrics.LabelType:         condition.Type,
-			MetricLabelConditionStatus: string(status),
+		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
+		c.observeHistogram(c.ConditionDuration, ConditionDuration, duration, map[string]string{
+			pmetrics.LabelType:         observedCondition.Type,
+			MetricLabelConditionStatus: string(observedCondition.Status),
 		})
 		c.eventRecorder.Event(o, v1.EventTypeNormal, condition.Type, fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s%s",
 			condition.Type,
-			status,
+			observedCondition.Status,
 			condition.Status,
 			condition.Reason,
 			lo.Ternary(condition.Message != "", fmt.Sprintf(", Message: %s", condition.Message), ""),

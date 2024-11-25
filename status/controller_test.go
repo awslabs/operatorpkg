@@ -525,10 +525,14 @@ var _ = Describe("Controller", func() {
 		Expect(testObject.StatusConditions().Get(status.ConditionReady).LastTransitionTime.Time).To(Equal(testObject.GetCreationTimestamp().Time))
 	})
 	It("should consider status conditions that aren't set as unknown", func() {
+		// This mimics an object creation
 		testObject := test.Object(&test.CustomObject{})
-		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo) // initialize all conditions, set Foo to true
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
 
-		// conditions not set
+		// Then the status conditions gets initialized and a condition is set to True
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
+		testObject.SetCreationTimestamp(metav1.Time{Time: time.Now().Add(time.Hour)})
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
