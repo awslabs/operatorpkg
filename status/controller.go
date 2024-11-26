@@ -20,9 +20,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -34,6 +36,7 @@ type Controller[T Object] struct {
 	observedFinalizers            sync.Map // map[reconcile.Request]Finalizer
 	terminatingObjects            sync.Map // map[reconcile.Request]DeletionTimestamp
 	emitDeprecatedMetrics         bool
+	predicates                    []predicate.TypedPredicate[client.Object]
 	ConditionDuration             pmetrics.ObservationMetric
 	ConditionCount                pmetrics.GaugeMetric
 	ConditionCurrentStatusSeconds pmetrics.GaugeMetric
@@ -51,10 +54,17 @@ type Option struct {
 	// - operator_termination_current_time_seconds
 	// - operator_termination_duration_seconds
 	EmitDeprecatedMetrics bool
+	Predicates            []predicate.TypedPredicate[client.Object]
 }
 
 func EmitDeprecatedMetrics(o *Option) {
 	o.EmitDeprecatedMetrics = true
+}
+
+func WithPredicates(predicates ...predicate.TypedPredicate[client.Object]) func(o *Option) {
+	return func(o *Option) {
+		o.Predicates = append(o.Predicates, predicates...)
+	}
 }
 
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *Controller[T] {
@@ -68,6 +78,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 		kubeClient:                    client,
 		eventRecorder:                 eventRecorder,
 		emitDeprecatedMetrics:         options.EmitDeprecatedMetrics,
+		predicates:                    options.Predicates,
 		ConditionDuration:             conditionDurationMetric(strings.ToLower(gvk.Kind)),
 		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind)),
 		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind)),
@@ -79,7 +90,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 
 func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
-		For(object.New[T]()).
+		For(object.New[T](), builder.WithPredicates(c.predicates...)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
 		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(c.gvk.Kind))).
 		Complete(c)
@@ -101,7 +112,7 @@ func NewGenericObjectController[T client.Object](client client.Client, eventReco
 
 func (c *GenericObjectController[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
-		For(object.New[T]()).
+		For(object.New[T](), builder.WithPredicates(c.predicates...)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
 		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(reflect.TypeOf(object.New[T]()).Elem().Name()))).
 		Complete(c)
