@@ -148,7 +148,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 				MetricLabelName:      req.Name,
 			})
 			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
-				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(deletionTS.(*metav1.Time).Time).Seconds(), c.toAdditionalMetricLabels(o))
+				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{}, c.toAdditionalMetricLabels(o))
 			}
 			if finalizers, ok := c.observedFinalizers.LoadAndDelete(req); ok {
 				for _, finalizer := range finalizers.([]string) {
@@ -169,10 +169,10 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	}
 
 	if o.GetDeletionTimestamp() != nil {
-		c.setGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, time.Since(o.GetDeletionTimestamp().Time).Seconds(), lo.Assign(map[string]string{
+		c.setGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
 			MetricLabelNamespace: req.Namespace,
 			MetricLabelName:      req.Name,
-		}, c.toAdditionalMetricLabels(o)))
+		}, c.toAdditionalMetricLabels(o))
 		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
 	}
 
@@ -185,32 +185,32 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	c.observedConditions.Store(req, currentConditions)
 
 	for _, condition := range o.GetConditions() {
-		c.setGaugeMetric(c.ConditionCount, ConditionCount, 1, lo.Assign(map[string]string{
+		c.setGaugeMetric(c.ConditionCount, ConditionCount, 1, map[string]string{
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
-		}, c.toAdditionalMetricLabels(o)))
-		c.setGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, time.Since(condition.LastTransitionTime.Time).Seconds(), lo.Assign(map[string]string{
+		}, c.toAdditionalMetricLabels(o))
+		c.setGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, time.Since(condition.LastTransitionTime.Time).Seconds(), map[string]string{
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
-		}, c.toAdditionalMetricLabels(o)))
+		}, c.toAdditionalMetricLabels(o))
 	}
 
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
-			c.deleteGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
+			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
 			})
-			c.deleteGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
+			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
@@ -241,19 +241,19 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			continue
 		}
 		// A condition transitions if it either didn't exist before or it has changed
-		c.incCounterMetric(c.ConditionTransitionsTotal, ConditionTransitionsTotal, lo.Assign(map[string]string{
+		c.incCounterMetric(c.ConditionTransitionsTotal, ConditionTransitionsTotal, map[string]string{
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
-		}, c.toAdditionalMetricLabels(o)))
+		}, c.toAdditionalMetricLabels(o))
 		if observedCondition == nil {
 			continue
 		}
 		duration := condition.LastTransitionTime.Time.Sub(observedCondition.LastTransitionTime.Time).Seconds()
-		c.observeHistogram(c.ConditionDuration, ConditionDuration, duration, lo.Assign(map[string]string{
+		c.observeHistogram(c.ConditionDuration, ConditionDuration, duration, map[string]string{
 			pmetrics.LabelType:         observedCondition.Type,
 			MetricLabelConditionStatus: string(observedCondition.Status),
-		}, c.toAdditionalMetricLabels(o)))
+		}, c.toAdditionalMetricLabels(o))
 		c.eventRecorder.Event(o, v1.EventTypeNormal, condition.Type, fmt.Sprintf("Status condition transitioned, Type: %s, Status: %s -> %s, Reason: %s%s",
 			condition.Type,
 			observedCondition.Status,
@@ -265,8 +265,8 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
 }
 
-func (c *Controller[T]) incCounterMetric(current pmetrics.CounterMetric, deprecated pmetrics.CounterMetric, labels map[string]string) {
-	current.Inc(labels)
+func (c *Controller[T]) incCounterMetric(current pmetrics.CounterMetric, deprecated pmetrics.CounterMetric, labels, additionalLabels map[string]string) {
+	current.Inc(lo.Assign(labels, additionalLabels))
 	if c.emitDeprecatedMetrics {
 		labels[pmetrics.LabelKind] = c.gvk.Kind
 		labels[pmetrics.LabelGroup] = c.gvk.Group
@@ -274,21 +274,12 @@ func (c *Controller[T]) incCounterMetric(current pmetrics.CounterMetric, depreca
 	}
 }
 
-func (c *Controller[T]) setGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, value float64, labels map[string]string) {
-	current.Set(value, labels)
+func (c *Controller[T]) setGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, value float64, labels, additionalLabels map[string]string) {
+	current.Set(value, lo.Assign(labels, additionalLabels))
 	if c.emitDeprecatedMetrics {
 		labels[pmetrics.LabelKind] = c.gvk.Kind
 		labels[pmetrics.LabelGroup] = c.gvk.Group
 		deprecated.Set(value, labels)
-	}
-}
-
-func (c *Controller[T]) deleteGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, labels map[string]string) {
-	current.DeletePartialMatch(labels)
-	if c.emitDeprecatedMetrics {
-		labels[pmetrics.LabelKind] = c.gvk.Kind
-		labels[pmetrics.LabelGroup] = c.gvk.Group
-		deprecated.Delete(labels)
 	}
 }
 
@@ -301,8 +292,8 @@ func (c *Controller[T]) deletePartialMatchGaugeMetric(current pmetrics.GaugeMetr
 	}
 }
 
-func (c *Controller[T]) observeHistogram(current pmetrics.ObservationMetric, deprecated pmetrics.ObservationMetric, value float64, labels map[string]string) {
-	current.Observe(value, labels)
+func (c *Controller[T]) observeHistogram(current pmetrics.ObservationMetric, deprecated pmetrics.ObservationMetric, value float64, labels, additionalLabels map[string]string) {
+	current.Observe(value, lo.Assign(labels, additionalLabels))
 	if c.emitDeprecatedMetrics {
 		labels[pmetrics.LabelKind] = c.gvk.Kind
 		labels[pmetrics.LabelGroup] = c.gvk.Group
