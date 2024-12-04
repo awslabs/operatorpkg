@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -33,7 +32,7 @@ type Controller[T Object] struct {
 	eventRecorder                 record.EventRecorder
 	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
 	observedFinalizers            sync.Map // map[reconcile.Request]Finalizer
-	terminatingObjects            sync.Map // map[reconcile.Request]DeletionTimestamp
+	terminatingObjects            sync.Map // map[reconcile.Request]Object
 	emitDeprecatedMetrics         bool
 	ConditionDuration             pmetrics.ObservationMetric
 	ConditionCount                pmetrics.GaugeMetric
@@ -147,8 +146,8 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
 			})
-			if deletionTS, ok := c.terminatingObjects.Load(req); ok {
-				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(deletionTS.(*metav1.Time).Time).Seconds(), map[string]string{}, c.toAdditionalMetricLabels(o))
+			if obj, ok := c.terminatingObjects.LoadAndDelete(req); ok {
+				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(obj.(Object).GetDeletionTimestamp().Time).Seconds(), map[string]string{}, c.toAdditionalMetricLabels(obj.(Object)))
 			}
 			if finalizers, ok := c.observedFinalizers.LoadAndDelete(req); ok {
 				for _, finalizer := range finalizers.([]string) {
@@ -173,7 +172,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			MetricLabelNamespace: req.Namespace,
 			MetricLabelName:      req.Name,
 		}, c.toAdditionalMetricLabels(o))
-		c.terminatingObjects.Store(req, o.GetDeletionTimestamp())
+		c.terminatingObjects.Store(req, o)
 	}
 
 	// Detect and record condition counts
