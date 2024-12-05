@@ -201,7 +201,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	}
 
 	for _, observedCondition := range observedConditions.List() {
-		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status {
+		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status || currentCondition.Reason != observedCondition.Reason {
 			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
