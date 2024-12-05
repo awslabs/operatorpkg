@@ -54,12 +54,12 @@ var _ = Describe("Controller", func() {
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {
-		metrics.Registry.Unregister(controller.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
-		metrics.Registry.Unregister(controller.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Unregister(controller.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Unregister(controller.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
-		metrics.Registry.Unregister(controller.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Unregister(controller.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		registry.Unregister(controller.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		registry.Unregister(controller.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
+		registry.Unregister(controller.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		registry.Unregister(controller.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
+		registry.Unregister(controller.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		registry.Unregister(controller.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
 	})
 	It("should emit termination metrics when deletion timestamp is set", func() {
 		testObject := test.Object(&test.CustomObject{})
@@ -628,6 +628,54 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
 	})
+	It("should ensure that we don't leak metrics when changing reason with the same status", func() {
+		testObject := test.Object(&test.CustomObject{})
+		testObject.StatusConditions() // initialize conditions
+
+		// conditions not set (this means that we should see that the condition is in an "Unknown" state)
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"})).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Set Foo explicitly to Unknown (this shouldn't change the reason at all)
+		testObject.StatusConditions().SetUnknown(test.ConditionTypeFoo)
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionUnknown})
+
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"})).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Set Foo to Unknown but with a custom reason (we should change the reason abut not leak metrics)
+		testObject.StatusConditions().SetUnknownWithReason(test.ConditionTypeFoo, "CustomReason", "custom message")
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionUnknown})
+
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "CustomReason"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "CustomReason"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "CustomReason"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "CustomReason"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "CustomReason"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "CustomReason"})).GetGauge().GetValue()).ToNot(BeZero())
+
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+	})
 })
 
 var _ = Describe("Generic Controller", func() {
@@ -639,12 +687,12 @@ var _ = Describe("Generic Controller", func() {
 		genericController = status.NewGenericObjectController[*TestGenericObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {
-		metrics.Registry.Unregister(genericController.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
-		metrics.Registry.Unregister(genericController.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Unregister(genericController.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Unregister(genericController.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
-		metrics.Registry.Unregister(genericController.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Unregister(genericController.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		registry.Unregister(genericController.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		registry.Unregister(genericController.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
+		registry.Unregister(genericController.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		registry.Unregister(genericController.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
+		registry.Unregister(genericController.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		registry.Unregister(genericController.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
 	})
 	It("should emit termination metrics when deletion timestamp is set", func() {
 		testObject := test.Object(&TestGenericObject{})
