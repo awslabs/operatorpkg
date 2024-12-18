@@ -162,8 +162,8 @@ func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client
 func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, o := range objects {
-		Expect(c.Delete(ctx, o)).To(Succeed())
-		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Or(Succeed(), MatchError(ContainSubstring("not found"))))
+		Expect(client.IgnoreNotFound(c.Delete(ctx, o))).To(Succeed())
+		Expect(client.IgnoreNotFound(c.Get(ctx, client.ObjectKeyFromObject(o), o))).To(Succeed())
 	}
 }
 
