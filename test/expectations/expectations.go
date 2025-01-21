@@ -119,6 +119,7 @@ func ExpectDeletionTimestampSet(ctx context.Context, c client.Client, objects ..
 }
 
 func ExpectStatusConditions(ctx context.Context, c client.Client, timeout time.Duration, obj status.Object, conditions ...status.Condition) {
+	GinkgoHelper()
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(BeNil())
 		objStatus := obj.StatusConditions()
@@ -179,6 +180,7 @@ func ExpectForceCleanedUp(ctx context.Context, c client.Client, objectLists ...c
 }
 
 func expectCleanedUp(ctx context.Context, c client.Client, force bool, objectLists ...client.ObjectList) {
+	GinkgoHelper()
 	wg := sync.WaitGroup{}
 	for _, objectList := range objectLists {
 		wg.Add(1)
