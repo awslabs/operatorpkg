@@ -40,6 +40,9 @@ func AsChannelObjectReconciler[T client.Object](watchEvents <-chan watch.Event, 
 		var errs error
 		var results []reconcile.Result
 		e := <-watchEvents
+		if e.Object == nil {
+			return reconcile.Result{RequeueAfter: RequeueImmediately}, nil
+		}
 		res, err := reconciler.Reconcile(ctx, e.Object.(T))
 		errs = multierr.Append(errs, err)
 		results = append(results, res)

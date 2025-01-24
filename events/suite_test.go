@@ -20,11 +20,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	clock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -39,8 +39,8 @@ var (
 var ctx context.Context
 var fakeClock *clock.FakeClock
 var controller *events.Controller[*test.CustomObject]
-var environment envtest.Environment
 var kubeClient client.Client
+var eventChannel chan watch.Event
 
 func Test(t *testing.T) {
 	lo.Must0(SchemeBuilder.AddToScheme(scheme.Scheme))
@@ -52,15 +52,13 @@ var _ = BeforeSuite(func() {
 	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 
 	fakeClock = clock.NewFakeClock(time.Now())
-	environment = envtest.Environment{Scheme: scheme.Scheme}
-	_ = lo.Must(environment.Start())
-	kubeClient = lo.Must(client.New(environment.Config, client.Options{Scheme: scheme.Scheme}))
+	kubeClient = ctrlfake.NewClientBuilder().WithScheme(scheme.Scheme).WithIndex(&corev1.Event{}, "involvedObject.kind", func(o client.Object) []string {
+		evt := o.(*corev1.Event)
+		return []string{evt.InvolvedObject.Kind}
+	}).Build()
 
-	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, kubernetes.NewForConfigOrDie(environment.Config))
-})
-
-var _ = AfterSuite(func() {
-	environment.Stop()
+	eventChannel = make(chan watch.Event, 1000)
+	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, eventChannel)
 })
 
 var _ = Describe("Controller", func() {
@@ -78,8 +76,11 @@ var _ = Describe("Controller", func() {
 			// expect an metrics for custom object to be zero, waiting on controller reconcile
 			Expect(GetMetric("operator_customobject_event_total", conditionLabels(fmt.Sprintf("Test-type-%d", i), fmt.Sprintf("Test-reason-%d", i)))).To(BeNil())
 
+			eventChannel <- watch.Event{
+				Object: events[i],
+			}
 			// reconcile on the event
-			_, err := singleton.AsChannelObjectReconciler(controller.EventWatch.ResultChan(), controller).Reconcile(ctx, reconcile.Request{})
+			_, err := singleton.AsChannelObjectReconciler(eventChannel, controller).Reconcile(ctx, reconcile.Request{})
 			Expect(err).ToNot(HaveOccurred())
 
 			// expect an emitted metric to for the event
@@ -95,8 +96,11 @@ var _ = Describe("Controller", func() {
 		// expect an metrics for custom object to be zero, waiting on controller reconcile
 		Expect(GetMetric("operator_ustomobject_event_total", conditionLabels(corev1.EventTypeNormal, "reason"))).To(BeNil())
 
+		eventChannel <- watch.Event{
+			Object: event,
+		}
 		// reconcile on the event
-		_, err := singleton.AsChannelObjectReconciler(controller.EventWatch.ResultChan(), controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err := singleton.AsChannelObjectReconciler(eventChannel, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect not have an emitted metric to for the event
@@ -106,8 +110,11 @@ var _ = Describe("Controller", func() {
 		event.LastTimestamp.Time = time.Now().Add(-30 * time.Minute)
 		ExpectApplied(ctx, kubeClient, event)
 
+		eventChannel <- watch.Event{
+			Object: event,
+		}
 		// reconcile on the event
-		_, err = singleton.AsChannelObjectReconciler(controller.EventWatch.ResultChan(), controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err = singleton.AsChannelObjectReconciler(eventChannel, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect an emitted metric to for the event
