@@ -15,3 +15,7 @@ verify: ##
 .PHONY: test
 test: ##
 	go test ./...
+
+.PHONY: toolchain
+toolchain: ##
+	./.github/toolchain.sh

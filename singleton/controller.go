@@ -40,7 +40,7 @@ func Source() source.Source {
 }
 
 func ChannelSource[T client.Object](ctx context.Context, objectChan <-chan watch.Event) source.Source {
-	eventSource := make(chan event.GenericEvent, 1)
+	eventSource := make(chan event.GenericEvent, 1000)
 
 	go func(ctx context.Context, objectChan <-chan watch.Event, eventSource chan event.GenericEvent) {
 		for {
