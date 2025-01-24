@@ -9,6 +9,7 @@ import (
 	"github.com/awslabs/operatorpkg/events"
 	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
+	"github.com/awslabs/operatorpkg/singleton"
 	"github.com/awslabs/operatorpkg/test"
 	. "github.com/awslabs/operatorpkg/test/expectations"
 	"github.com/onsi/ginkgo/v2"
@@ -73,7 +74,7 @@ var _ = Describe("Controller", func() {
 			Expect(GetMetric("operator_customobject_event_total", conditionLabels(fmt.Sprintf("Test-type-%d", i), fmt.Sprintf("Test-reason-%d", i)))).To(BeNil())
 
 			// reconcile on the event
-			_, err := reconcile.AsReconciler(kubeClient, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(events[i])})
+			_, err := singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(events[i])})
 			Expect(err).ToNot(HaveOccurred())
 
 			// expect an emitted metric to for the event
@@ -90,7 +91,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_ustomobject_event_total", conditionLabels(corev1.EventTypeNormal, "reason"))).To(BeNil())
 
 		// reconcile on the event
-		_, err := reconcile.AsReconciler(kubeClient, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err := singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect not have an emitted metric to for the event
@@ -101,7 +102,7 @@ var _ = Describe("Controller", func() {
 		ExpectApplied(ctx, kubeClient, event)
 
 		// reconcile on the event
-		_, err = reconcile.AsReconciler(kubeClient, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err = singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect an emitted metric to for the event

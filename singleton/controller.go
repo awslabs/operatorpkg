@@ -4,9 +4,7 @@ import (
 	"context"
 	"time"
 
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -35,35 +33,6 @@ func Source() source.Source {
 	return source.Channel(eventSource, handler.Funcs{
 		GenericFunc: func(_ context.Context, _ event.GenericEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			queue.Add(reconcile.Request{})
-		},
-	})
-}
-
-func ChannelSource[T client.Object](ctx context.Context, objectChan <-chan watch.Event) source.Source {
-	eventSource := make(chan event.GenericEvent, 1000)
-
-	go func(ctx context.Context, objectChan <-chan watch.Event, eventSource chan event.GenericEvent) {
-		for {
-			select {
-			case delta, ok := <-objectChan:
-				if !ok {
-					return
-				}
-				// Convert the delta to GenericEvent
-				eventSource <- event.GenericEvent{
-					Object: delta.Object.(T),
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}(ctx, objectChan, eventSource)
-
-	return source.Channel(eventSource, handler.Funcs{
-		GenericFunc: func(_ context.Context, event event.GenericEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			queue.Add(reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(event.Object),
-			})
 		},
 	})
 }
