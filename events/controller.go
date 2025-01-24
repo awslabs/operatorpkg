@@ -27,7 +27,7 @@ type Controller[T client.Object] struct {
 	startTime  time.Time
 	kubeClient client.Client
 	EventCount pmetrics.CounterMetric
-	eventWatch watch.Interface
+	EventWatch watch.Interface
 }
 
 func NewController[T client.Object](ctx context.Context, client client.Client, clock clock.Clock, kubernetesInterface kubernetes.Interface) *Controller[T] {
@@ -37,7 +37,7 @@ func NewController[T client.Object](ctx context.Context, client client.Client, c
 		startTime:  clock.Now(),
 		kubeClient: client,
 		EventCount: eventTotalMetric(strings.ToLower(gvk.Kind)),
-		eventWatch: lo.Must(kubernetesInterface.CoreV1().Events("").Watch(ctx, metav1.ListOptions{
+		EventWatch: lo.Must(kubernetesInterface.CoreV1().Events("").Watch(ctx, metav1.ListOptions{
 			FieldSelector: fmt.Sprintf("involvedObject.kind=%s,involvedObject.apiVersion=%s", gvk.Kind, gvk.GroupVersion().String()),
 		})),
 	}
@@ -47,21 +47,17 @@ func (c *Controller[T]) Register(ctx context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		Named(fmt.Sprintf("operatorpkg.%s.events", strings.ToLower(c.gvk.Kind))).
 		WatchesRawSource(singleton.Source()).
-		Complete(singleton.AsReconciler(c))
+		Complete(singleton.AsChannelObjectReconciler(c.EventWatch.ResultChan(), c))
 }
 
-func (c *Controller[T]) Reconcile(ctx context.Context) (reconcile.Result, error) {
-	for e := range c.eventWatch.ResultChan() {
-		event := e.Object.(*v1.Event)
-
-		// We check if the event was created in the lifetime of this controller
-		// since we don't duplicate metrics on controller restart or lease handover
-		if c.startTime.Before(event.LastTimestamp.Time) {
-			c.EventCount.Inc(map[string]string{
-				pmetrics.LabelType:   event.Type,
-				pmetrics.LabelReason: event.Reason,
-			})
-		}
+func (c *Controller[T]) Reconcile(ctx context.Context, event *v1.Event) (reconcile.Result, error) {
+	// We check if the event was created in the lifetime of this controller
+	// since we don't duplicate metrics on controller restart or lease handover
+	if c.startTime.Before(event.LastTimestamp.Time) {
+		c.EventCount.Inc(map[string]string{
+			pmetrics.LabelType:   event.Type,
+			pmetrics.LabelReason: event.Reason,
+		})
 	}
 
 	return reconcile.Result{}, nil
