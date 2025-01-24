@@ -38,6 +38,7 @@ func NewController[T client.Object](ctx context.Context, client client.Client, c
 		kubeClient: client,
 		EventCount: eventTotalMetric(strings.ToLower(gvk.Kind)),
 		EventWatch: lo.Must(kubernetesInterface.CoreV1().Events("").Watch(ctx, metav1.ListOptions{
+			// Only reconcile on the object kind we care about
 			FieldSelector: fmt.Sprintf("involvedObject.kind=%s,involvedObject.apiVersion=%s", gvk.Kind, gvk.GroupVersion().String()),
 		})),
 	}
