@@ -49,7 +49,7 @@ func (c *Controller[T]) Register(ctx context.Context, m manager.Manager) error {
 }
 
 func (c *Controller[T]) Reconcile(ctx context.Context, event *v1.Event) (reconcile.Result, error) {
-	if event.InvolvedObject.Kind != c.gvk.Kind && event.InvolvedObject.APIVersion != c.gvk.GroupVersion().String() {
+	if event.InvolvedObject.Kind != c.gvk.Kind || event.InvolvedObject.APIVersion != c.gvk.GroupVersion().String() {
 		return reconcile.Result{}, nil
 	}
 
