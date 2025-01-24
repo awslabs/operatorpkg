@@ -39,12 +39,10 @@ func AsChannelObjectReconciler[T client.Object](watchEvents <-chan watch.Event, 
 	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		var errs error
 		var results []reconcile.Result
-		for event := range watchEvents {
-			res, err := reconciler.Reconcile(ctx, event.Object.(T))
-			errs = multierr.Append(errs, err)
-			results = append(results, res)
-
-		}
+		e := <-watchEvents
+		res, err := reconciler.Reconcile(ctx, e.Object.(T))
+		errs = multierr.Append(errs, err)
+		results = append(results, res)
 
 		var result reconcile.Result
 		min := time.Duration(math.MaxInt64)
