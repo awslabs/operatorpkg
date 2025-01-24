@@ -43,7 +43,6 @@ func ChannelSource[T client.Object](ctx context.Context, objectChan <-chan watch
 	eventSource := make(chan event.GenericEvent, 1)
 
 	go func(ctx context.Context, objectChan <-chan watch.Event, eventSource chan event.GenericEvent) {
-
 		for {
 			select {
 			case delta, ok := <-objectChan:

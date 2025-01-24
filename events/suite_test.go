@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	clock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -48,16 +47,12 @@ func Test(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	ctx = context.Background()
 	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 
 	fakeClock = clock.NewFakeClock(time.Now())
-	kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithIndex(&corev1.Event{}, "involvedObject.kind", func(o client.Object) []string {
-		evt := o.(*corev1.Event)
-		return []string{evt.InvolvedObject.Kind}
-	}).Build()
 	environment := envtest.Environment{Scheme: scheme.Scheme}
 	_ = lo.Must(environment.Start())
+	kubeClient = lo.Must(client.New(environment.Config, client.Options{Scheme: scheme.Scheme}))
 
 	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, kubernetes.NewForConfigOrDie(environment.Config))
 })
@@ -117,12 +112,14 @@ var _ = Describe("Controller", func() {
 func createEvent(name string, eventType string, reason string) *corev1.Event {
 	return &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: test.RandomName(),
+			Name:      test.RandomName(),
+			Namespace: "default",
 		},
 		InvolvedObject: corev1.ObjectReference{
-			Namespace: "default",
-			Name:      name,
-			Kind:      object.GVK(&test.CustomObject{}).Kind,
+			Namespace:  "default",
+			Name:       name,
+			Kind:       object.GVK(&test.CustomObject{}).Kind,
+			APIVersion: object.GVK(&test.CustomObject{}).GroupVersion().String(),
 		},
 		LastTimestamp: metav1.Time{Time: time.Now().Add(30 * time.Minute)},
 		Type:          eventType,
