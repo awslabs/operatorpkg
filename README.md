@@ -4,7 +4,7 @@ We strive to maintain a relatively minimal dependency footprint, but some depend
 
 ## Maintainers
 
-Maintainers are limited to AWS employees, but we may consider external contributions and bug fixes. This project is maintained in service of a set of projects well known to the maintainers. We will not consider feature requests unless they are in direct support of these projects. For example, we are delighted to accept contributions from the community behind https://github.com/aws/karpenter-core. Before depending on this package, please speak with the maintainers.
+Maintainers are limited to AWS employees, but we may consider external contributions and bug fixes. This project is maintained in service of a set of projects well known to the maintainers. We will not consider feature requests unless they are in direct support of these projects. For example, we are delighted to accept contributions from the community behind https://github.com/kubernetes-sigs/karpenter. Before depending on this package, please speak with the maintainers.
 
 ## Versioning
 
