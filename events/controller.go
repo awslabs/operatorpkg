@@ -60,5 +60,5 @@ func (c *Controller[T]) Reconcile(ctx context.Context, event *v1.Event) (reconci
 		})
 	}
 
-	return reconcile.Result{}, nil
+	return reconcile.Result{RequeueAfter: singleton.RequeueImmediately}, nil
 }
