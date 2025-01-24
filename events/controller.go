@@ -42,10 +42,16 @@ func (c *Controller[T]) Register(ctx context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		Named(fmt.Sprintf("operatorpkg.%s.events", strings.ToLower(c.gvk.Kind))).
 		WatchesRawSource(singleton.Source()).
-		Complete(singleton.AsChannelObjectReconciler(c.EventWatchChannel, c))
+		Complete(singleton.AsReconciler(c))
 }
 
-func (c *Controller[T]) Reconcile(ctx context.Context, event *v1.Event) (reconcile.Result, error) {
+func (c *Controller[T]) Reconcile(ctx context.Context) (reconcile.Result, error) {
+	e := <-c.EventWatchChannel
+	if e.Object == nil {
+		return reconcile.Result{RequeueAfter: singleton.RequeueImmediately}, nil
+	}
+	event := e.Object.(*v1.Event)
+
 	// We check if the event was created in the lifetime of this controller
 	// since we don't duplicate metrics on controller restart or lease handover
 	if c.startTime.Before(event.LastTimestamp.Time) {
