@@ -27,7 +27,7 @@ type Controller[T client.Object] struct {
 	EventWatchChannel <-chan watch.Event
 }
 
-func NewController[T client.Object](ctx context.Context, client client.Client, clock clock.Clock, channel <-chan watch.Event) *Controller[T] {
+func NewController[T client.Object](client client.Client, clock clock.Clock, channel <-chan watch.Event) *Controller[T] {
 	gvk := object.GVK(object.New[T]())
 	return &Controller[T]{
 		gvk:               gvk,
@@ -38,7 +38,7 @@ func NewController[T client.Object](ctx context.Context, client client.Client, c
 	}
 }
 
-func (c *Controller[T]) Register(ctx context.Context, m manager.Manager) error {
+func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		Named(fmt.Sprintf("operatorpkg.%s.events", strings.ToLower(c.gvk.Kind))).
 		WatchesRawSource(singleton.Source()).
