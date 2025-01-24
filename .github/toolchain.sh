@@ -5,6 +5,8 @@ K8S_VERSION="${K8S_VERSION:="1.31.x"}"
 KUBEBUILDER_ASSETS="/usr/local/kubebuilder/bin"
 
 main() {
+    go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+    
     kubebuilder
 }
 
