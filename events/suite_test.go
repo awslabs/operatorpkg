@@ -39,6 +39,7 @@ var (
 var ctx context.Context
 var fakeClock *clock.FakeClock
 var controller *events.Controller[*test.CustomObject]
+var environment envtest.Environment
 var kubeClient client.Client
 
 func Test(t *testing.T) {
@@ -51,11 +52,15 @@ var _ = BeforeSuite(func() {
 	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 
 	fakeClock = clock.NewFakeClock(time.Now())
-	environment := envtest.Environment{Scheme: scheme.Scheme}
+	environment = envtest.Environment{Scheme: scheme.Scheme}
 	_ = lo.Must(environment.Start())
 	kubeClient = lo.Must(client.New(environment.Config, client.Options{Scheme: scheme.Scheme}))
 
 	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, kubernetes.NewForConfigOrDie(environment.Config))
+})
+
+var _ = AfterSuite(func() {
+	environment.Stop()
 })
 
 var _ = Describe("Controller", func() {
@@ -74,7 +79,7 @@ var _ = Describe("Controller", func() {
 			Expect(GetMetric("operator_customobject_event_total", conditionLabels(fmt.Sprintf("Test-type-%d", i), fmt.Sprintf("Test-reason-%d", i)))).To(BeNil())
 
 			// reconcile on the event
-			_, err := singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(events[i])})
+			_, err := singleton.AsChannelObjectReconciler(controller.EventWatch.ResultChan(), controller).Reconcile(ctx, reconcile.Request{})
 			Expect(err).ToNot(HaveOccurred())
 
 			// expect an emitted metric to for the event
@@ -91,7 +96,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_ustomobject_event_total", conditionLabels(corev1.EventTypeNormal, "reason"))).To(BeNil())
 
 		// reconcile on the event
-		_, err := singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err := singleton.AsChannelObjectReconciler(controller.EventWatch.ResultChan(), controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect not have an emitted metric to for the event
@@ -102,7 +107,7 @@ var _ = Describe("Controller", func() {
 		ExpectApplied(ctx, kubeClient, event)
 
 		// reconcile on the event
-		_, err = singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err = singleton.AsChannelObjectReconciler(controller.EventWatch.ResultChan(), controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect an emitted metric to for the event
