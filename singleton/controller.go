@@ -2,13 +2,9 @@ package singleton
 
 import (
 	"context"
-	"math"
 	"time"
 
-	"go.uber.org/multierr"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -28,39 +24,6 @@ type Reconciler interface {
 func AsReconciler(reconciler Reconciler) reconcile.Reconciler {
 	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		return reconciler.Reconcile(ctx)
-	})
-}
-
-type ChannalObjectReconciler[T client.Object] interface {
-	Reconcile(ctx context.Context, object T) (reconcile.Result, error)
-}
-
-func AsChannelObjectReconciler[T client.Object](watchEvents <-chan watch.Event, reconciler ChannalObjectReconciler[T]) reconcile.Reconciler {
-	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
-		var errs error
-		var results []reconcile.Result
-		e := <-watchEvents
-		if e.Object == nil {
-			return reconcile.Result{RequeueAfter: RequeueImmediately}, nil
-		}
-		res, err := reconciler.Reconcile(ctx, e.Object.(T))
-		errs = multierr.Append(errs, err)
-		results = append(results, res)
-
-		var result reconcile.Result
-		min := time.Duration(math.MaxInt64)
-		for _, r := range results {
-			if r.IsZero() {
-				continue
-			}
-			if r.RequeueAfter < min {
-				min = r.RequeueAfter
-				result.RequeueAfter = min
-				result.Requeue = true
-			}
-		}
-
-		return result, errs
 	})
 }
 

@@ -80,7 +80,7 @@ var _ = Describe("Controller", func() {
 				Object: events[i],
 			}
 			// reconcile on the event
-			_, err := singleton.AsChannelObjectReconciler(eventChannel, controller).Reconcile(ctx, reconcile.Request{})
+			_, err := singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{})
 			Expect(err).ToNot(HaveOccurred())
 
 			// expect an emitted metric to for the event
@@ -100,7 +100,7 @@ var _ = Describe("Controller", func() {
 			Object: event,
 		}
 		// reconcile on the event
-		_, err := singleton.AsChannelObjectReconciler(eventChannel, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err := singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect not have an emitted metric to for the event
@@ -114,7 +114,7 @@ var _ = Describe("Controller", func() {
 			Object: event,
 		}
 		// reconcile on the event
-		_, err = singleton.AsChannelObjectReconciler(eventChannel, controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
+		_, err = singleton.AsReconciler(controller).Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(event)})
 		Expect(err).ToNot(HaveOccurred())
 
 		// expect an emitted metric to for the event
