@@ -19,10 +19,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	clock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -46,13 +48,18 @@ func Test(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	ctx = context.Background()
+	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
+
 	fakeClock = clock.NewFakeClock(time.Now())
 	kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithIndex(&corev1.Event{}, "involvedObject.kind", func(o client.Object) []string {
 		evt := o.(*corev1.Event)
 		return []string{evt.InvolvedObject.Kind}
 	}).Build()
-	controller = events.NewController[*test.CustomObject](kubeClient, fakeClock)
-	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
+	environment := envtest.Environment{Scheme: scheme.Scheme}
+	_ = lo.Must(environment.Start())
+
+	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, kubernetes.NewForConfigOrDie(environment.Config))
 })
 
 var _ = Describe("Controller", func() {
