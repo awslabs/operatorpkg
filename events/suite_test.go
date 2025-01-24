@@ -21,10 +21,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	clock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -52,13 +53,15 @@ var _ = BeforeSuite(func() {
 	ctx = log.IntoContext(context.Background(), ginkgo.GinkgoLogr)
 
 	fakeClock = clock.NewFakeClock(time.Now())
-	kubeClient = ctrlfake.NewClientBuilder().WithScheme(scheme.Scheme).WithIndex(&corev1.Event{}, "involvedObject.kind", func(o client.Object) []string {
+	kubeClient = crfake.NewClientBuilder().WithScheme(scheme.Scheme).WithIndex(&corev1.Event{}, "involvedObject.kind", func(o client.Object) []string {
 		evt := o.(*corev1.Event)
 		return []string{evt.InvolvedObject.Kind}
 	}).Build()
 
+	client := fake.NewSimpleClientset()
 	eventChannel = make(chan watch.Event, 1000)
-	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, eventChannel)
+	controller = events.NewController[*test.CustomObject](ctx, kubeClient, fakeClock, client)
+	controller.EventWatchChannel = eventChannel
 })
 
 var _ = Describe("Controller", func() {

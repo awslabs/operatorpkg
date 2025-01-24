@@ -9,9 +9,13 @@ import (
 	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
 	"github.com/awslabs/operatorpkg/singleton"
+	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/clock"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,14 +31,17 @@ type Controller[T client.Object] struct {
 	EventWatchChannel <-chan watch.Event
 }
 
-func NewController[T client.Object](client client.Client, clock clock.Clock, channel <-chan watch.Event) *Controller[T] {
+func NewController[T client.Object](ctx context.Context, client client.Client, clock clock.Clock, kubernetesInterface kubernetes.Interface) *Controller[T] {
 	gvk := object.GVK(object.New[T]())
 	return &Controller[T]{
-		gvk:               gvk,
-		startTime:         clock.Now(),
-		kubeClient:        client,
-		EventCount:        eventTotalMetric(strings.ToLower(gvk.Kind)),
-		EventWatchChannel: channel,
+		gvk:        gvk,
+		startTime:  clock.Now(),
+		kubeClient: client,
+		EventCount: eventTotalMetric(strings.ToLower(gvk.Kind)),
+		EventWatchChannel: lo.Must(kubernetesInterface.CoreV1().Events("").Watch(ctx, metav1.ListOptions{
+			// Only reconcile on the object kind we care about
+			FieldSelector: fmt.Sprintf("involvedObject.kind=%s,involvedObject.apiVersion=%s", object.GVK(&corev1.Node{}).Kind, object.GVK(&corev1.Node{}).GroupVersion().String()),
+		})).ResultChan(),
 	}
 }
 
