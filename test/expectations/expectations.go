@@ -67,6 +67,16 @@ func ExpectReconciled(ctx context.Context, reconciler reconcile.Reconciler, obje
 	return result
 }
 
+func ExpectRequeued(result reconcile.Result) {
+	GinkgoHelper()
+	Expect(result.Requeue || result.RequeueAfter != lo.Empty[time.Duration]())
+}
+
+func ExpectNotRequeued(result reconcile.Result) {
+	GinkgoHelper()
+	Expect(!result.Requeue && result.RequeueAfter == lo.Empty[time.Duration]())
+}
+
 func ExpectObject[T client.Object](ctx context.Context, c client.Client, obj T) types.Assertion {
 	GinkgoHelper()
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
