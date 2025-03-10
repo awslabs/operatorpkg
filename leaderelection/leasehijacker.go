@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/samber/lo"
+	coordinationv1 "k8s.io/api/coordination/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	coordinationv1client "k8s.io/client-go/kubernetes/typed/coordination/v1"
@@ -42,15 +44,30 @@ func LeaseHijacker(ctx context.Context, config *rest.Config, namespace string, n
 		return nil // If not set, fallback to other controller-runtime lease settings
 	}
 	kubeClient := coordinationv1client.NewForConfigOrDie(config)
-	lease := lo.Must(kubeClient.Leases(namespace).Get(ctx, name, metav1.GetOptions{}))
+	var lease *coordinationv1.Lease
+	var err error
+	if lease, err = kubeClient.Leases(namespace).Get(ctx, name, metav1.GetOptions{}); err != nil {
+		if errors.IsNotFound(err) {
+			lease = &coordinationv1.Lease{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: coordinationv1.LeaseSpec{},
+			}
+		} else {
+			panic(err)
+		}
+	}
 
-	untilElection := time.Until(lease.Spec.RenewTime.Add(time.Duration(*lease.Spec.LeaseDurationSeconds) * time.Second))
+	untilElection := time.Until(lo.Ternary(lease.Spec.RenewTime == nil, metav1.NowMicro(), lo.FromPtr(lease.Spec.RenewTime)).
+		Add(time.Duration(lo.FromPtr(lease.Spec.LeaseDurationSeconds)) * time.Second))
 
 	lease.Spec.HolderIdentity = lo.ToPtr(fmt.Sprintf("%s_%s", lo.Must(os.Hostname()), uuid.NewUUID()))
 	lease.Spec.AcquireTime = lo.ToPtr(metav1.NowMicro())
 	lease.Spec.RenewTime = lo.ToPtr(metav1.NowMicro())
-	*lease.Spec.LeaseDurationSeconds += 5 // Make our lease longer to guarantee we win the next election
-	*lease.Spec.LeaseTransitions += 1
+	lease.Spec.LeaseDurationSeconds = lo.ToPtr(lo.FromPtr(lease.Spec.LeaseDurationSeconds) + 5) // Make our lease longer to guarantee we win the next election
+	lease.Spec.LeaseTransitions = lo.ToPtr(lo.FromPtr(lease.Spec.LeaseTransitions) + 1)
 	lo.Must(kubeClient.Leases(namespace).Update(ctx, lease, metav1.UpdateOptions{}))
 
 	log.FromContext(ctx).Info(fmt.Sprintf("hijacked lease, waiting %s for election", untilElection), "namespace", namespace, "name", name)
