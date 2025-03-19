@@ -7,6 +7,7 @@ import (
 	"github.com/awslabs/operatorpkg/test"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -163,5 +164,35 @@ var _ = Describe("Conditions", func() {
 		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-2].Type).To(Equal(test.ConditionTypeBaz))
 		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-3].Type).To(Equal(test.ConditionTypeBar))
 		Expect(testObject.StatusConditions().List()[len(testObject.StatusConditions().List())-4].Type).To(Equal(test.ConditionTypeFoo))
+	})
+
+	It("should bump generation of all conditions when deleting", func() {
+		testObject := test.Object(&test.CustomObject{})
+		// Conditions should be initialized
+		conditions := testObject.StatusConditions()
+		// Expect status to be unkown
+		Expect(conditions.Get(test.ConditionTypeFoo).GetStatus()).To(Equal(metav1.ConditionUnknown))
+		Expect(conditions.Get(test.ConditionTypeBar).GetStatus()).To(Equal(metav1.ConditionUnknown))
+		Expect(conditions.Root().GetStatus()).To(Equal(metav1.ConditionUnknown))
+
+		// set conditions to true and expect generation set
+		Expect(conditions.SetTrue(test.ConditionTypeFoo)).To(BeTrue())
+		Expect(conditions.SetTrue(test.ConditionTypeBar)).To(BeTrue())
+		Expect(conditions.Get(test.ConditionTypeFoo).Status).To(Equal(metav1.ConditionTrue))
+		Expect(conditions.Get(test.ConditionTypeBar).Status).To(Equal(metav1.ConditionTrue))
+		Expect(conditions.Get(test.ConditionTypeFoo).ObservedGeneration).To(Equal(int64(1)))
+		Expect(conditions.Get(test.ConditionTypeBar).ObservedGeneration).To(Equal(int64(1)))
+
+		// set deletion timestamp and bump observed generation
+		testObject.SetDeletionTimestamp(lo.ToPtr(metav1.Now()))
+		testObject.SetGeneration(2)
+
+		// set one condition to true again; ensure all the other conditions observed generation is bumped
+		// make sure root condition is also true and not unknown
+		Expect(conditions.SetTrue(test.ConditionTypeFoo)).To(BeTrue())
+		Expect(conditions.Get(test.ConditionTypeFoo).ObservedGeneration).To(Equal(int64(2)))
+		Expect(conditions.Get(test.ConditionTypeBar).ObservedGeneration).To(Equal(int64(2)))
+		Expect(conditions.Root().Status).To(Equal(metav1.ConditionTrue))
+		Expect(conditions.Root().ObservedGeneration).To(Equal(int64(2)))
 	})
 })
