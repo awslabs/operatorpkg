@@ -27,7 +27,7 @@ import (
 
 type Controller[T Object] struct {
 	gvk                           schema.GroupVersionKind
-	additionalMetricLabels        []string
+	labelProviders                []LabelProvider
 	kubeClient                    client.Client
 	eventRecorder                 record.EventRecorder
 	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
@@ -51,7 +51,20 @@ type Option struct {
 	// - operator_termination_current_time_seconds
 	// - operator_termination_duration_seconds
 	EmitDeprecatedMetrics bool
-	MetricLabels          []string
+	LabelProviders []LabelProvider
+}
+
+type LabelProvider struct {
+	Key      string
+	Resolver func(client.Object) string
+
+	prometheusKey string
+}
+
+func (o *Option) AdditionalPrometheusLabels() []string {
+	return lo.Map(o.LabelProviders, func(lp LabelProvider, _ int) string {
+		return lp.prometheusKey
+	})
 }
 
 func EmitDeprecatedMetrics(o *Option) {
@@ -60,7 +73,24 @@ func EmitDeprecatedMetrics(o *Option) {
 
 func WithLabels(labels ...string) func(*Option) {
 	return func(o *Option) {
-		o.MetricLabels = append(o.MetricLabels, labels...)
+		o.LabelProviders = append(o.LabelProviders, lo.Map(labels, func(label string, _ int) LabelProvider {
+			return LabelProvider{
+				Key: label,
+				Resolver: func(o client.Object) string {
+					return o.GetLabels()[label]
+				},
+				prometheusKey: toPrometheusLabel(label),
+			}
+		})...)
+	}
+}
+
+func WithArbitraryLabels(providers ...LabelProvider) func(*Option) {
+	return func(o *Option) {
+		o.LabelProviders = append(o.LabelProviders, lo.Map(providers, func(lp LabelProvider, _ int) LabelProvider {
+			lp.prometheusKey = toPrometheusLabel(lp.Key)
+			return lp
+		})...)
 	}
 }
 
@@ -72,16 +102,16 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 
 	return &Controller[T]{
 		gvk:                           gvk,
-		additionalMetricLabels:        options.MetricLabels,
+		labelProviders:                options.LabelProviders,
 		kubeClient:                    client,
 		eventRecorder:                 eventRecorder,
 		emitDeprecatedMetrics:         options.EmitDeprecatedMetrics,
-		ConditionDuration:             conditionDurationMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionTransitionsTotal:     conditionTransitionsTotalMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationDuration:           terminationDurationMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		ConditionDuration:             conditionDurationMetric(strings.ToLower(gvk.Kind), options.AdditionalPrometheusLabels()...),
+		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind), options.AdditionalPrometheusLabels()...),
+		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind), options.AdditionalPrometheusLabels()...),
+		ConditionTransitionsTotal:     conditionTransitionsTotalMetric(strings.ToLower(gvk.Kind), options.AdditionalPrometheusLabels()...),
+		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind), options.AdditionalPrometheusLabels()...),
+		TerminationDuration:           terminationDurationMetric(strings.ToLower(gvk.Kind), options.AdditionalPrometheusLabels()...),
 	}
 }
 
@@ -120,7 +150,9 @@ func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcil
 }
 
 func (c *Controller[T]) toAdditionalMetricLabels(obj Object) map[string]string {
-	return lo.SliceToMap(c.additionalMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] })
+	return lo.SliceToMap(c.labelProviders, func(lp LabelProvider) (string, string) {
+		return lp.prometheusKey, lp.Resolver(obj)
+	})
 }
 
 func toPrometheusLabel(k string) string {

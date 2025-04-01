@@ -628,6 +628,76 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
 	})
+	It("should add labels to metrics when using WithArbitraryLabels", func() {
+		metrics.Registry = prometheus.NewRegistry()
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithArbitraryLabels(status.LabelProvider{
+			Key: "foo",
+			Resolver: func(o client.Object) string {
+				if customObj, ok := o.(*test.CustomObject); ok {
+					return customObj.Spec.CustomField
+				}
+				return ""
+			},
+		}))
+		testObject := test.Object(&test.CustomObject{
+			Spec: test.CustomSpec{
+				CustomField: "bar",
+			},
+		})
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// Transition Foo
+		time.Sleep(time.Second * 1)
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionTrue})
+
+		// Ready Condition
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"foo": "bar"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue)), map[string]string{"foo": "bar"})).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse)), map[string]string{"foo": "bar"})).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"foo": "bar"})).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Foo Condition
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"foo": "bar"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).ToNot(BeZero())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+
+		// Bar Condition
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"foo": "bar"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"foo": "bar"})).GetGauge().GetValue()).ToNot(BeZero())
+
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"foo": "bar"})).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"foo": "bar"})).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"foo": "bar"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"foo": "bar"}))).To(BeNil())
+	})
 	It("should ensure that we don't leak metrics when changing reason with the same status", func() {
 		testObject := test.Object(&test.CustomObject{})
 		testObject.StatusConditions() // initialize conditions
