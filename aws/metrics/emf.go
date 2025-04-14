@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/awslabs/operatorpkg/metrics"
 	"github.com/samber/lo"
 )
 
@@ -41,7 +42,7 @@ type EMFCounter struct {
 	*EMF
 }
 
-func NewEMFCounter(writer io.Writer, namespace, name string, dimensions [][]string, additionalProperties ...map[string]string) CounterMetric {
+func NewEMFCounter(writer io.Writer, namespace, name string, dimensions [][]string, additionalProperties ...map[string]string) metrics.CounterMetric {
 	return &EMFCounter{EMF: NewEMF(writer, namespace, name, dimensions, additionalProperties...)}
 }
 
@@ -67,7 +68,7 @@ type EMFGauge struct {
 	*EMF
 }
 
-func NewEMFGauge(writer io.Writer, namespace, name string, dimensions [][]string, additionalProperties ...map[string]string) GaugeMetric {
+func NewEMFGauge(writer io.Writer, namespace, name string, dimensions [][]string, additionalProperties ...map[string]string) metrics.GaugeMetric {
 	return &EMFGauge{EMF: NewEMF(writer, namespace, name, dimensions, additionalProperties...)}
 }
 
@@ -87,7 +88,7 @@ type EMFObservation struct {
 	*EMF
 }
 
-func NewEMFObservation(writer io.Writer, namespace, name string, dimensions [][]string, additionalProperties ...map[string]string) ObservationMetric {
+func NewEMFObservation(writer io.Writer, namespace, name string, dimensions [][]string, additionalProperties ...map[string]string) metrics.ObservationMetric {
 	return &EMFObservation{EMF: NewEMF(writer, namespace, name, dimensions, additionalProperties...)}
 }
 
