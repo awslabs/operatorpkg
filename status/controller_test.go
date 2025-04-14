@@ -29,10 +29,6 @@ var recorder *record.FakeRecorder
 var kubeClient client.Client
 var registry = metrics.Registry
 
-var _ = BeforeEach(func() {
-	metrics.Registry = registry // reset the registry to handle cases where the registry is overridden
-})
-
 var _ = AfterEach(func() {
 	status.ConditionDuration.Reset()
 	status.ConditionCount.Reset()
@@ -54,12 +50,23 @@ var _ = Describe("Controller", func() {
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {
-		registry.Unregister(controller.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
-		registry.Unregister(controller.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
-		registry.Unregister(controller.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		registry.Unregister(controller.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
-		registry.Unregister(controller.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		registry.Unregister(controller.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		metrics.Registry = registry // reset the registry to handle cases where the registry is overridden
+		metrics.Registry.Unregister(controller.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		metrics.Registry.Unregister(controller.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Unregister(controller.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Unregister(controller.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
+		metrics.Registry.Unregister(controller.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Unregister(controller.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+
+		// Calls to Unregister are async so we need to wait for the metrics to get cleaned up
+		Eventually(func(g Gomega) {
+			g.Expect(GetMetric("operator_customobject_status_condition_count")).To(BeNil())
+			g.Expect(GetMetric("operator_customobject_status_condition_current_status_seconds")).To(BeNil())
+			g.Expect(GetMetric("operator_customobject_status_condition_transition_seconds")).To(BeNil())
+			g.Expect(GetMetric("operator_customobject_status_condition_transitions_total")).To(BeNil())
+			g.Expect(GetMetric("operator_customobject_termination_current_time_seconds")).To(BeNil())
+			g.Expect(GetMetric("operator_customobject_termination_duration_seconds")).To(BeNil())
+		}).To(Succeed())
 	})
 	It("should emit termination metrics when deletion timestamp is set", func() {
 		testObject := test.Object(&test.CustomObject{})
@@ -687,12 +694,23 @@ var _ = Describe("Generic Controller", func() {
 		genericController = status.NewGenericObjectController[*TestGenericObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {
-		registry.Unregister(genericController.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
-		registry.Unregister(genericController.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
-		registry.Unregister(genericController.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		registry.Unregister(genericController.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
-		registry.Unregister(genericController.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
-		registry.Unregister(genericController.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		metrics.Registry = registry // reset the registry to handle cases where the registry is overridden
+		metrics.Registry.Unregister(genericController.ConditionDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+		metrics.Registry.Unregister(genericController.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Unregister(genericController.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Unregister(genericController.ConditionTransitionsTotal.(*pmetrics.PrometheusCounter).CounterVec)
+		metrics.Registry.Unregister(genericController.TerminationCurrentTimeSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Unregister(genericController.TerminationDuration.(*pmetrics.PrometheusHistogram).HistogramVec)
+
+		// Calls to Unregister are async so we need to wait for the metrics to get cleaned up
+		Eventually(func(g Gomega) {
+			g.Expect(GetMetric("operator_testgenericobject_status_condition_count")).To(BeNil())
+			g.Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds")).To(BeNil())
+			g.Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds")).To(BeNil())
+			g.Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total")).To(BeNil())
+			g.Expect(GetMetric("operator_testgenericobject_termination_current_time_seconds")).To(BeNil())
+			g.Expect(GetMetric("operator_testgenericobject_termination_duration_seconds")).To(BeNil())
+		}).To(Succeed())
 	})
 	It("should emit termination metrics when deletion timestamp is set", func() {
 		testObject := test.Object(&TestGenericObject{})
