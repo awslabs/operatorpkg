@@ -52,6 +52,7 @@ type Option struct {
 	// - operator_termination_duration_seconds
 	EmitDeprecatedMetrics bool
 	MetricLabels          []string
+	GaugeMetricLabels     []string
 }
 
 func EmitDeprecatedMetrics(o *Option) {
@@ -61,6 +62,12 @@ func EmitDeprecatedMetrics(o *Option) {
 func WithLabels(labels ...string) func(*Option) {
 	return func(o *Option) {
 		o.MetricLabels = append(o.MetricLabels, labels...)
+	}
+}
+
+func WithGaugeLabels(labels ...string) func(*Option) {
+	return func(o *Option) {
+		o.GaugeMetricLabels = append(o.GaugeMetricLabels, labels...)
 	}
 }
 
@@ -77,10 +84,10 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 		eventRecorder:                 eventRecorder,
 		emitDeprecatedMetrics:         options.EmitDeprecatedMetrics,
 		ConditionDuration:             conditionDurationMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(append(options.MetricLabels, options.GaugeMetricLabels...), func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(append(options.MetricLabels, options.GaugeMetricLabels...), func(k string, _ int) string { return toPrometheusLabel(k) })...),
 		ConditionTransitionsTotal:     conditionTransitionsTotalMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(append(options.MetricLabels, options.GaugeMetricLabels...), func(k string, _ int) string { return toPrometheusLabel(k) })...),
 		TerminationDuration:           terminationDurationMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
 	}
 }
