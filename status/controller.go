@@ -28,6 +28,7 @@ import (
 type Controller[T Object] struct {
 	gvk                           schema.GroupVersionKind
 	additionalMetricLabels        []string
+	additionalGaugeMetricLabels   []string
 	kubeClient                    client.Client
 	eventRecorder                 record.EventRecorder
 	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
@@ -80,6 +81,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 	return &Controller[T]{
 		gvk:                           gvk,
 		additionalMetricLabels:        options.MetricLabels,
+		additionalGaugeMetricLabels:   options.GaugeMetricLabels,
 		kubeClient:                    client,
 		eventRecorder:                 eventRecorder,
 		emitDeprecatedMetrics:         options.EmitDeprecatedMetrics,
@@ -128,6 +130,10 @@ func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcil
 
 func (c *Controller[T]) toAdditionalMetricLabels(obj Object) map[string]string {
 	return lo.SliceToMap(c.additionalMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] })
+}
+
+func (c *Controller[T]) toAdditionalGaugeMetricLabels(obj Object) map[string]string {
+	return lo.Assign(c.toAdditionalMetricLabels(obj), lo.SliceToMap(c.additionalGaugeMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] }))
 }
 
 func toPrometheusLabel(k string) string {
@@ -179,7 +185,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 		c.setGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, time.Since(o.GetDeletionTimestamp().Time).Seconds(), map[string]string{
 			MetricLabelNamespace: req.Namespace,
 			MetricLabelName:      req.Name,
-		}, c.toAdditionalMetricLabels(o))
+		}, c.toAdditionalGaugeMetricLabels(o))
 		c.terminatingObjects.Store(req, o)
 	}
 
@@ -198,14 +204,14 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
-		}, c.toAdditionalMetricLabels(o))
+		}, c.toAdditionalGaugeMetricLabels(o))
 		c.setGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, time.Since(condition.LastTransitionTime.Time).Seconds(), map[string]string{
 			MetricLabelNamespace:       req.Namespace,
 			MetricLabelName:            req.Name,
 			pmetrics.LabelType:         condition.Type,
 			MetricLabelConditionStatus: string(condition.Status),
 			pmetrics.LabelReason:       condition.Reason,
-		}, c.toAdditionalMetricLabels(o))
+		}, c.toAdditionalGaugeMetricLabels(o))
 	}
 
 	for _, observedCondition := range observedConditions.List() {
