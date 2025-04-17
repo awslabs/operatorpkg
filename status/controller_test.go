@@ -7,6 +7,7 @@ import (
 
 	pmetrics "github.com/awslabs/operatorpkg/metrics"
 	"github.com/awslabs/operatorpkg/object"
+	"github.com/awslabs/operatorpkg/option"
 	"github.com/awslabs/operatorpkg/status"
 	"github.com/awslabs/operatorpkg/test"
 	. "github.com/awslabs/operatorpkg/test/expectations"
@@ -570,71 +571,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 	})
-	It("should add labels to metrics when using WithLabels", func() {
-		metrics.Registry = prometheus.NewRegistry()
-		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithLabels("operator.pkg/key1", "operator.pkg/key2"))
-		testObject := test.Object(&test.CustomObject{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels: map[string]string{
-					"operator.pkg/key1": "value1",
-					"operator.pkg/key2": "value2",
-				},
-			},
-		})
-		ExpectApplied(ctx, kubeClient, testObject)
-		ExpectReconciled(ctx, controller, testObject)
-
-		// Transition Foo
-		time.Sleep(time.Second * 1)
-		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
-		ExpectApplied(ctx, kubeClient, testObject)
-		ExpectReconciled(ctx, controller, testObject)
-		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionTrue})
-
-		// Ready Condition
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue)), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse)), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetGauge().GetValue()).ToNot(BeZero())
-
-		// Foo Condition
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).ToNot(BeZero())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-
-		// Bar Condition
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetGauge().GetValue()).ToNot(BeZero())
-
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"})).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2"}))).To(BeNil())
-	})
 	It("should ensure that we don't leak metrics when changing reason with the same status", func() {
 		testObject := test.Object(&test.CustomObject{})
 		testObject.StatusConditions() // initialize conditions
@@ -683,6 +619,92 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
 	})
+	DescribeTable("should add labels to metrics", func(labelOption option.Function[status.Option], isGaugeOption bool) {
+		metrics.Registry = prometheus.NewRegistry()
+		testObject := test.Object(&test.CustomObject{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{
+					"operator.pkg/key1": "value1",
+					"operator.pkg/key2": "value2",
+				},
+			},
+			Spec: test.CustomSpec{
+				Field1: "value1",
+				Field2: "value2",
+			},
+		})
+		ExpectApplied(ctx, kubeClient, testObject)
+
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, labelOption)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// Transition Foo
+		time.Sleep(time.Second * 1)
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionTrue})
+
+		// Ready Condition
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue)), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse)), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Foo Condition
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).ToNot(BeZero())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+
+		// Bar Condition
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).ToNot(BeZero())
+
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		if isGaugeOption {
+			Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil()) // Metric with extra labels shouldn't exist
+			Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))                                                                        // But the one without extra labels should
+		} else {
+			Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
+		}
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(status.ConditionReady, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		if isGaugeOption {
+			Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil()) // Metric with extra labels shouldn't exist
+			Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))                                                                                    // But the one without extra labels should
+		} else {
+			Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetCounter().GetValue()).To(BeEquivalentTo(1))
+		}
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_transitions_total", lo.Assign(conditionLabels(ConditionTypeBar, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+	},
+		// Ensure that we select for labels and fields that don't exist to ensure that we handle the NotFound case
+		Entry("when using WithLabels", status.WithLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"), false),
+		Entry("when using WithGaugeLabels", status.WithGaugeLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"), true),
+		Entry("when using WithFields", status.WithFields(map[string]string{"operator.pkg/key1": ".spec.field1", "operator.pkg/key2": ".spec.field2", "operator.pkg/key3": ".spec.field3"}), false),
+		Entry("when using WithGaugeFields", status.WithGaugeFields(map[string]string{"operator.pkg/key1": ".spec.field1", "operator.pkg/key2": ".spec.field2", "operator.pkg/key3": ".spec.field3"}), true),
+	)
 })
 
 var _ = Describe("Generic Controller", func() {

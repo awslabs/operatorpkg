@@ -50,7 +50,14 @@ func RandomName() string {
 type CustomObject struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              CustomSpec   `json:"spec"`
 	Status            CustomStatus `json:"status"`
+}
+
+// +k8s:deepcopy-gen=true
+type CustomSpec struct {
+	Field1 string `json:"field1,omitempty"`
+	Field2 string `json:"field2,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true

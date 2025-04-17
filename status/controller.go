@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -29,6 +30,8 @@ type Controller[T Object] struct {
 	gvk                           schema.GroupVersionKind
 	additionalMetricLabels        []string
 	additionalGaugeMetricLabels   []string
+	additionalMetricFields        map[string]string
+	additionalGaugeMetricFields   map[string]string
 	kubeClient                    client.Client
 	eventRecorder                 record.EventRecorder
 	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
@@ -54,6 +57,8 @@ type Option struct {
 	EmitDeprecatedMetrics bool
 	MetricLabels          []string
 	GaugeMetricLabels     []string
+	MetricFields          map[string]string
+	GaugeMetricFields     map[string]string
 }
 
 func EmitDeprecatedMetrics(o *Option) {
@@ -72,6 +77,18 @@ func WithGaugeLabels(labels ...string) func(*Option) {
 	}
 }
 
+func WithFields(fields map[string]string) func(*Option) {
+	return func(o *Option) {
+		o.MetricFields = lo.Assign(o.MetricFields, fields)
+	}
+}
+
+func WithGaugeFields(fields map[string]string) func(*Option) {
+	return func(o *Option) {
+		o.GaugeMetricFields = lo.Assign(o.GaugeMetricFields, fields)
+	}
+}
+
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *Controller[T] {
 	options := option.Resolve(opts...)
 	obj := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(runtime.Object)
@@ -79,18 +96,38 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 	gvk := object.GVK(obj)
 
 	return &Controller[T]{
-		gvk:                           gvk,
-		additionalMetricLabels:        options.MetricLabels,
-		additionalGaugeMetricLabels:   options.GaugeMetricLabels,
-		kubeClient:                    client,
-		eventRecorder:                 eventRecorder,
-		emitDeprecatedMetrics:         options.EmitDeprecatedMetrics,
-		ConditionDuration:             conditionDurationMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionCount:                conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(append(options.MetricLabels, options.GaugeMetricLabels...), func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(append(options.MetricLabels, options.GaugeMetricLabels...), func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		ConditionTransitionsTotal:     conditionTransitionsTotalMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(append(options.MetricLabels, options.GaugeMetricLabels...), func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationDuration:           terminationDurationMetric(strings.ToLower(gvk.Kind), lo.Map(options.MetricLabels, func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		gvk:                         gvk,
+		additionalMetricLabels:      options.MetricLabels,
+		additionalGaugeMetricLabels: options.GaugeMetricLabels,
+		additionalMetricFields:      options.MetricFields,
+		additionalGaugeMetricFields: options.GaugeMetricFields,
+		kubeClient:                  client,
+		eventRecorder:               eventRecorder,
+		emitDeprecatedMetrics:       options.EmitDeprecatedMetrics,
+		ConditionDuration: conditionDurationMetric(strings.ToLower(gvk.Kind), lo.Map(
+			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
+			func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		ConditionCount: conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(
+			append(
+				append(lo.Keys(options.MetricFields), lo.Keys(options.GaugeMetricFields)...),
+				append(options.MetricLabels, options.GaugeMetricLabels...)...,
+			), func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		ConditionCurrentStatusSeconds: conditionCurrentStatusSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(
+			append(
+				append(lo.Keys(options.MetricFields), lo.Keys(options.GaugeMetricFields)...),
+				append(options.MetricLabels, options.GaugeMetricLabels...)...,
+			), func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		ConditionTransitionsTotal: conditionTransitionsTotalMetric(strings.ToLower(gvk.Kind), lo.Map(
+			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
+			func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		TerminationCurrentTimeSeconds: terminationCurrentTimeSecondsMetric(strings.ToLower(gvk.Kind), lo.Map(
+			append(
+				append(lo.Keys(options.MetricFields), lo.Keys(options.GaugeMetricFields)...),
+				append(options.MetricLabels, options.GaugeMetricLabels...)...,
+			), func(k string, _ int) string { return toPrometheusLabel(k) })...),
+		TerminationDuration: terminationDurationMetric(strings.ToLower(gvk.Kind), lo.Map(
+			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
+			func(k string, _ int) string { return toPrometheusLabel(k) })...),
 	}
 }
 
@@ -129,11 +166,25 @@ func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcil
 }
 
 func (c *Controller[T]) toAdditionalMetricLabels(obj Object) map[string]string {
-	return lo.SliceToMap(c.additionalMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] })
+	return lo.Assign(
+		lo.MapEntries(c.additionalMetricFields, func(k string, v string) (string, string) {
+			u := lo.Must(runtime.DefaultUnstructuredConverter.ToUnstructured(obj))
+			elem, _, _ := unstructured.NestedString(u, lo.Filter(strings.Split(v, "."), func(s string, _ int) bool { return s != "" })...)
+			return toPrometheusLabel(k), elem
+		}),
+		lo.SliceToMap(c.additionalMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] }),
+	)
 }
 
 func (c *Controller[T]) toAdditionalGaugeMetricLabels(obj Object) map[string]string {
-	return lo.Assign(c.toAdditionalMetricLabels(obj), lo.SliceToMap(c.additionalGaugeMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] }))
+	return lo.Assign(
+		lo.MapEntries(c.additionalGaugeMetricFields, func(k string, v string) (string, string) {
+			u := lo.Must(runtime.DefaultUnstructuredConverter.ToUnstructured(obj))
+			elem, _, _ := unstructured.NestedString(u, lo.Filter(strings.Split(v, "."), func(s string, _ int) bool { return s != "" })...)
+			return toPrometheusLabel(k), elem
+		}),
+		c.toAdditionalMetricLabels(obj), lo.SliceToMap(c.additionalGaugeMetricLabels, func(label string) (string, string) { return toPrometheusLabel(label), obj.GetLabels()[label] }),
+	)
 }
 
 func toPrometheusLabel(k string) string {
