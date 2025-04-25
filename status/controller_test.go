@@ -599,7 +599,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"})).GetGauge().GetValue()).ToNot(BeZero())
 
-		// Set Foo to Unknown but with a custom reason (we should change the reason abut not leak metrics)
+		// Set Foo to Unknown but with a custom reason (we should change the reason but not leak metrics)
 		testObject.StatusConditions().SetUnknownWithReason(test.ConditionTypeFoo, "CustomReason", "custom message")
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
@@ -618,6 +618,48 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"reason": "AwaitingReconciliation"}))).To(BeNil())
+	})
+	It("should ensure that we don't leak metrics when changing labels", func() {
+		metrics.Registry = prometheus.NewRegistry()
+		testObject := test.Object(&test.CustomObject{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{
+					"operator.pkg/key1": "value1",
+					"operator.pkg/key2": "value2",
+				},
+			},
+			Spec: test.CustomSpec{
+				Field1: "value1",
+				Field2: "value2",
+			},
+		})
+		ExpectApplied(ctx, kubeClient, testObject)
+
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"))
+		ExpectReconciled(ctx, controller, testObject)
+
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).ToNot(BeZero())
+
+		// Set empty label to a different value and ensure that we don't still keep track of the old metric
+		testObject.Labels["operator.pkg/key3"] = "value3"
+
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionUnknown})
+
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge()).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"})).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"}))).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge()).To(BeNil())
+		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"})).GetGauge().GetValue()).ToNot(BeZero())
 	})
 	DescribeTable("should add labels to metrics", func(labelOption option.Function[status.Option], isGaugeOption bool) {
 		metrics.Registry = prometheus.NewRegistry()
