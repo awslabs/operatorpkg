@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ type Controller[T Object] struct {
 	kubeClient                    client.Client
 	eventRecorder                 record.EventRecorder
 	observedConditions            sync.Map // map[reconcile.Request]ConditionSet
+	observedGaugeLabels           sync.Map // map[reconcile.Request]map[string]string
 	observedFinalizers            sync.Map // map[reconcile.Request]Finalizer
 	terminatingObjects            sync.Map // map[reconcile.Request]Object
 	emitDeprecatedMetrics         bool
@@ -199,6 +201,7 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	if err := c.kubeClient.Get(ctx, req.NamespacedName, o); err != nil {
 		if errors.IsNotFound(err) {
 			c.observedConditions.Delete(req)
+			c.observedGaugeLabels.Delete(req)
 			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
@@ -246,7 +249,12 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	if v, ok := c.observedConditions.Load(req); ok {
 		observedConditions = v.(ConditionSet)
 	}
+	observedGaugeLabels := map[string]string{}
+	if v, ok := c.observedGaugeLabels.Load(req); ok {
+		observedGaugeLabels = v.(map[string]string)
+	}
 	c.observedConditions.Store(req, currentConditions)
+	c.observedGaugeLabels.Store(req, c.toAdditionalGaugeMetricLabels(o))
 
 	for _, condition := range o.GetConditions() {
 		c.setGaugeMetric(c.ConditionCount, ConditionCount, 1, map[string]string{
@@ -266,21 +274,21 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 	}
 
 	for _, observedCondition := range observedConditions.List() {
-		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status || currentCondition.Reason != observedCondition.Reason {
-			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
+		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status || currentCondition.Reason != observedCondition.Reason || !maps.Equal(c.toAdditionalGaugeMetricLabels(o), observedGaugeLabels) {
+			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, lo.Assign(map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
-			})
-			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
+			}, observedGaugeLabels))
+			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, lo.Assign(map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
-			})
+			}, observedGaugeLabels))
 		}
 	}
 
