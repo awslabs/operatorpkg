@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	opunstructured "github.com/awslabs/operatorpkg/unstructured"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -146,12 +147,12 @@ func (c *Controller[T]) Reconcile(ctx context.Context, req reconcile.Request) (r
 }
 
 type GenericObjectController[T client.Object] struct {
-	*Controller[*unstructuredAdapter[T]]
+	*Controller[*UnstructuredAdapter[T]]
 }
 
 func NewGenericObjectController[T client.Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *GenericObjectController[T] {
 	return &GenericObjectController[T]{
-		Controller: NewController[*unstructuredAdapter[T]](client, eventRecorder, opts...),
+		Controller: NewController[*UnstructuredAdapter[T]](client, eventRecorder, opts...),
 	}
 }
 
@@ -168,9 +169,9 @@ func (c *GenericObjectController[T]) Reconcile(ctx context.Context, req reconcil
 }
 
 func (c *Controller[T]) toAdditionalMetricLabels(obj Object) map[string]string {
+	u := opunstructured.ToPartialUnstructured(obj, lo.Values(c.additionalMetricFields)...)
 	return lo.Assign(
 		lo.MapEntries(c.additionalMetricFields, func(k string, v string) (string, string) {
-			u := lo.Must(runtime.DefaultUnstructuredConverter.ToUnstructured(obj))
 			elem, _, _ := unstructured.NestedString(u, lo.Filter(strings.Split(v, "."), func(s string, _ int) bool { return s != "" })...)
 			return toPrometheusLabel(k), elem
 		}),
@@ -179,9 +180,9 @@ func (c *Controller[T]) toAdditionalMetricLabels(obj Object) map[string]string {
 }
 
 func (c *Controller[T]) toAdditionalGaugeMetricLabels(obj Object) map[string]string {
+	u := opunstructured.ToPartialUnstructured(obj, lo.Values(c.additionalGaugeMetricFields)...)
 	return lo.Assign(
 		lo.MapEntries(c.additionalGaugeMetricFields, func(k string, v string) (string, string) {
-			u := lo.Must(runtime.DefaultUnstructuredConverter.ToUnstructured(obj))
 			elem, _, _ := unstructured.NestedString(u, lo.Filter(strings.Split(v, "."), func(s string, _ int) bool { return s != "" })...)
 			return toPrometheusLabel(k), elem
 		}),

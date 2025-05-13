@@ -72,7 +72,7 @@ var _ = Describe("Unstructured Adapter", func() {
 		}
 		conditionObj := status.NewUnstructuredAdapter[*test.CustomObject](testObject)
 		conditionObj.SetConditions(conditions)
-		c, found, err := unstructured.NestedSlice(testObject.Object, "status", "conditions")
+		c, found, err := unstructured.NestedSlice(conditionObj.Object, "status", "conditions")
 		Expect(err).To(BeNil())
 		Expect(found).To(BeTrue())
 		Expect(len(c)).To(BeEquivalentTo(1))
