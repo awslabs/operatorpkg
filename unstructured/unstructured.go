@@ -13,6 +13,13 @@ import (
 // This is more memory efficient than using runtime.DefaultUnstructuredConverter since that requires the full
 // object to be converted and stored before extracting specific values from that object
 func ToPartialUnstructured(obj interface{}, fieldPaths ...string) map[string]interface{} {
+	if u, ok := obj.(unstructured.Unstructured); ok {
+		obj = u.UnstructuredContent()
+	}
+	if u, ok := obj.(*unstructured.Unstructured); ok {
+		obj = u.UnstructuredContent()
+	}
+
 	result := make(map[string]interface{})
 	for _, fieldPath := range fieldPaths {
 		_ = extractNestedField(obj, result, lo.Filter(strings.Split(fieldPath, "."), func(s string, _ int) bool { return s != "" })...)
@@ -22,12 +29,6 @@ func ToPartialUnstructured(obj interface{}, fieldPaths ...string) map[string]int
 
 // extractNestedField extracts a field using a path and populates the result map accordingly
 func extractNestedField(obj interface{}, result map[string]interface{}, field ...string) error {
-	if u, ok := obj.(unstructured.Unstructured); ok {
-		obj = u.UnstructuredContent()
-	}
-	if u, ok := obj.(*unstructured.Unstructured); ok {
-		obj = u.UnstructuredContent()
-	}
 	v := reflect.ValueOf(obj)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -61,20 +62,22 @@ func extractNestedField(obj interface{}, result map[string]interface{}, field ..
 		return nil
 	}
 	// Intermediate map — recurse
-	childMap := make(map[string]interface{})
+	childMap := map[string]interface{}{}
 	err := extractNestedField(val.Interface(), childMap, field[1:]...)
 	if err != nil {
 		return err
 	}
 	// Merge into parent map
-	if existing, exists := result[field[0]]; exists {
-		if m, ok := existing.(map[string]interface{}); ok {
-			for k, v := range childMap {
-				m[k] = v
-			}
+	if _, ok := result[field[0]]; !ok {
+		result[field[0]] = map[string]interface{}{}
+	}
+	for k, v := range childMap {
+		m, ok := result[field[0]].(map[string]interface{})
+		// In general, this should never happen because we have a check higher up in the function for field existence
+		if !ok {
+			panic(fmt.Sprintf("full field path %q not found in %T", field, obj))
 		}
-	} else {
-		result[field[0]] = childMap
+		m[k] = v
 	}
 	return nil
 }
