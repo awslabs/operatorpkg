@@ -191,7 +191,7 @@ func (c *Controller[T]) toAdditionalGaugeMetricLabels(obj Object) map[string]str
 }
 
 func toPrometheusLabel(k string) string {
-	unsupportedChars := []string{"/", "."}
+	unsupportedChars := []string{"/", ".", "-"}
 	for _, char := range unsupportedChars {
 		k = strings.ReplaceAll(k, char, "_")
 	}
