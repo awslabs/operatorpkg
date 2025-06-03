@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/Pallinder/go-randomdata v1.2.0
-	github.com/go-logr/logr v1.4.2
+	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zapr v1.3.0
 	github.com/imdario/mergo v0.3.16
 	github.com/onsi/ginkgo/v2 v2.23.4
