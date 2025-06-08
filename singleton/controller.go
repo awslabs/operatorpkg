@@ -36,3 +36,24 @@ func Source() source.Source {
 		},
 	})
 }
+
+// In response to Requeue: True being deprecated via: https://github.com/kubernetes-sigs/controller-runtime/pull/3107/files
+// This uses a bucket and per item delay but the item will be the same because the key is the controller name..
+// This implements the same behavior as Requeue: True.
+type SingletonRateLimiter struct {
+	rateLimiter workqueue.TypedRateLimiter[string]
+	key         string
+}
+
+func NewSingletonRateLimiter(controllerName string) *SingletonRateLimiter {
+	return &SingletonRateLimiter{
+		rateLimiter: workqueue.DefaultTypedControllerRateLimiter[string](),
+		key:         controllerName,
+	}
+}
+
+// Delay requeues the item according to the rate limiter.
+// Used like "RequeueAfter: controller.RateLimiter.Delay()"
+func (s *SingletonRateLimiter) Delay() time.Duration {
+	return s.rateLimiter.When(s.key)
+}
