@@ -14,7 +14,7 @@ require (
 	github.com/samber/lo v1.50.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/time v0.11.0
+	golang.org/x/time v0.12.0
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
