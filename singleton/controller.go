@@ -18,13 +18,10 @@ const (
 	RequeueImmediately = 1 * time.Nanosecond
 )
 
-// Result is a type alias for reconciler.Result for backward compatibility
-type Result = reconciler.Result
-
 // Reconciler defines the interface for singleton reconcilers
 type Reconciler interface {
 	Name() string
-	Reconcile(ctx context.Context) (Result, error)
+	Reconcile(ctx context.Context) (reconciler.Result, error)
 }
 
 // StringKeyExtractor extracts the controller name as the rate limiter key
@@ -44,7 +41,7 @@ func (e StringKeyExtractor) Extract(ctx context.Context, req reconcile.Request) 
 // AsReconciler creates a controller-runtime reconciler from a singleton reconciler
 func AsReconciler(rec Reconciler) reconcile.Reconciler {
 	return reconciler.AsGenericReconciler(
-		func(ctx context.Context, req reconcile.Request) (Result, error) {
+		func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
 			return rec.Reconcile(ctx)
 		},
 		StringKeyExtractor{reconciler: rec},
@@ -54,7 +51,7 @@ func AsReconciler(rec Reconciler) reconcile.Reconciler {
 // AsReconcilerWithRateLimiter creates a controller-runtime reconciler with a custom rate limiter
 func AsReconcilerWithRateLimiter(rec Reconciler, rateLimiter workqueue.TypedRateLimiter[string]) reconcile.Reconciler {
 	return reconciler.AsGenericReconcilerWithRateLimiter(
-		func(ctx context.Context, req reconcile.Request) (Result, error) {
+		func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
 			return rec.Reconcile(ctx)
 		},
 		StringKeyExtractor{reconciler: rec},
