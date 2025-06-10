@@ -8,14 +8,13 @@ import (
 
 	"github.com/awslabs/operatorpkg/reconciler"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // MockRateLimiter is a mock implementation of workqueue.TypedRateLimiter for testing
 type MockRateLimiter[K comparable] struct {
-	whenFunc       func(K) time.Duration
-	numRequeues    int
+	whenFunc        func(K) time.Duration
+	numRequeues     int
 	backoffDuration time.Duration
 }
 
@@ -107,7 +106,7 @@ func TestAsGenericReconciler(t *testing.T) {
 			// Create a mock reconcile function that returns a Result with RequeueWithBackoff = true
 			reconcileFunc := func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
 				return reconciler.Result{
-					Result:            reconcile.Result{},
+					Result:             reconcile.Result{},
 					RequeueWithBackoff: true,
 				}, nil
 			}
@@ -149,7 +148,7 @@ func TestAsGenericReconciler(t *testing.T) {
 			// Create a mock reconcile function that returns a Result with RequeueWithBackoff = true
 			reconcileFunc := func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
 				return reconciler.Result{
-					Result:            reconcile.Result{},
+					Result:             reconcile.Result{},
 					RequeueWithBackoff: true,
 				}, nil
 			}
@@ -170,17 +169,17 @@ func TestAsGenericReconciler(t *testing.T) {
 			// Call the adapter multiple times
 			ctx := context.Background()
 			req := reconcile.Request{}
-			
+
 			// First call
 			result1, err := adapter.Reconcile(ctx, req)
 			assert.NoError(t, err)
 			assert.Equal(t, 1*initialBackoff, result1.RequeueAfter)
-			
+
 			// Second call
 			result2, err := adapter.Reconcile(ctx, req)
 			assert.NoError(t, err)
 			assert.Equal(t, 2*initialBackoff, result2.RequeueAfter)
-			
+
 			// Third call
 			result3, err := adapter.Reconcile(ctx, req)
 			assert.NoError(t, err)
@@ -199,7 +198,7 @@ func TestAsGenericReconciler(t *testing.T) {
 			// Create a mock reconcile function that returns a Result with RequeueWithBackoff = true
 			reconcileFunc := func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
 				return reconciler.Result{
-					Result:            reconcile.Result{},
+					Result:             reconcile.Result{},
 					RequeueWithBackoff: true,
 				}, nil
 			}
@@ -350,7 +349,7 @@ func TestReconcilerFunc(t *testing.T) {
 			RequeueWithBackoff: false,
 		}
 		expectedErr := errors.New("test error")
-		
+
 		reconcileFunc := reconciler.ReconcilerFunc(func(ctx context.Context) (reconciler.Result, error) {
 			return expectedResult, expectedErr
 		})
