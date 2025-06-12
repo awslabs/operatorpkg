@@ -206,15 +206,15 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-			})
+			}, map[string]string{})
 			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-			})
+			}, map[string]string{})
 			c.deletePartialMatchGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-			})
+			}, map[string]string{})
 			if obj, ok := c.terminatingObjects.LoadAndDelete(req); ok {
 				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(obj.(Object).GetDeletionTimestamp().Time).Seconds(), map[string]string{}, c.toAdditionalMetricLabels(obj.(Object)))
 			}
@@ -276,20 +276,20 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status || currentCondition.Reason != observedCondition.Reason || !maps.Equal(c.toAdditionalGaugeMetricLabels(o), observedGaugeLabels) {
-			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, lo.Assign(map[string]string{
+			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
-			}, observedGaugeLabels))
-			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, lo.Assign(map[string]string{
+			}, observedGaugeLabels)
+			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
-			}, observedGaugeLabels))
+			}, observedGaugeLabels)
 		}
 	}
 
@@ -356,8 +356,8 @@ func (c *Controller[T]) setGaugeMetric(current pmetrics.GaugeMetric, deprecated 
 	}
 }
 
-func (c *Controller[T]) deletePartialMatchGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, labels map[string]string) {
-	current.DeletePartialMatch(labels)
+func (c *Controller[T]) deletePartialMatchGaugeMetric(current pmetrics.GaugeMetric, deprecated pmetrics.GaugeMetric, labels, additionalLabels map[string]string) {
+	current.DeletePartialMatch(lo.Assign(labels, additionalLabels))
 	if c.emitDeprecatedMetrics {
 		labels[pmetrics.LabelKind] = c.gvk.Kind
 		labels[pmetrics.LabelGroup] = c.gvk.Group
