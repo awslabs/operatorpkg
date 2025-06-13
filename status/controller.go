@@ -206,15 +206,15 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-			}, map[string]string{})
+			}, nil)
 			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-			}, map[string]string{})
+			}, nil)
 			c.deletePartialMatchGaugeMetric(c.TerminationCurrentTimeSeconds, TerminationCurrentTimeSeconds, map[string]string{
 				MetricLabelNamespace: req.Namespace,
 				MetricLabelName:      req.Name,
-			}, map[string]string{})
+			}, nil)
 			if obj, ok := c.terminatingObjects.LoadAndDelete(req); ok {
 				c.observeHistogram(c.TerminationDuration, TerminationDuration, time.Since(obj.(Object).GetDeletionTimestamp().Time).Seconds(), map[string]string{}, c.toAdditionalMetricLabels(obj.(Object)))
 			}
