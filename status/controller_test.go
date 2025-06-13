@@ -747,6 +747,45 @@ var _ = Describe("Controller", func() {
 		Entry("when using WithFields", status.WithFields(map[string]string{"operator.pkg/key1": ".spec.field1", "operator.pkg/key2": ".spec.field2", "operator.pkg/key3": ".spec.field3"}), false),
 		Entry("when using WithGaugeFields", status.WithGaugeFields(map[string]string{"operator.pkg/key1": ".spec.field1", "operator.pkg/key2": ".spec.field2", "operator.pkg/key3": ".spec.field3"}), true),
 	)
+	It("should use custom histogram buckets when specified", func() {
+		customBuckets := []float64{0.1, 0.5, 1.0, 2.0, 5.0}
+		metrics.Registry = prometheus.NewRegistry()
+
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithHistogramBuckets(customBuckets))
+
+		testObject := test.Object(&test.CustomObject{})
+		testObject.StatusConditions() // initialize conditions
+
+		// Apply object and reconcile to set initial state
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// Wait a bit to ensure some time passes for duration measurement
+		time.Sleep(100 * time.Millisecond)
+
+		// Transition a condition to trigger histogram observation
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// Verify that the histogram metric exists and has data
+		metric := GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown))
+		Expect(metric).ToNot(BeNil())
+
+		histogram := metric.GetHistogram()
+		Expect(histogram).ToNot(BeNil())
+		Expect(histogram.GetSampleCount()).To(BeNumerically(">", 0))
+
+		// Verify custom buckets are being used by checking bucket count matches our custom buckets
+		// The histogram should have len(customBuckets) + 1 buckets (including +Inf)
+		buckets := histogram.GetBucket()
+		Expect(len(buckets)).To(Equal(len(customBuckets)))
+
+		// Verify the bucket upper bounds match our custom buckets
+		for i, bucket := range buckets {
+			Expect(bucket.GetUpperBound()).To(Equal(customBuckets[i]))
+		}
+	})
 })
 
 var _ = Describe("Generic Controller", func() {
