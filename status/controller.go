@@ -276,11 +276,10 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status || currentCondition.Reason != observedCondition.Reason || !maps.Equal(c.toAdditionalGaugeMetricLabels(o), observedGaugeLabels) {
-			// We want to check if the additional lables on the object has changed, and if so, delete the metrics with the old lables.
+			// We want to check if the additional labels on the object has changed, and if so, delete the metrics with the old labels.
 			// Because we add the additional labels to the deletePartialMatchGaugeMetric() call based on if they have changed, it will not delete
 			// the deprecated metrics when the additional labels change but only when there is a change in the condition status because
 			// deprecated metrics to do not have the additional labels.
-			observedGaugeLabels := c.toAdditionalGaugeMetricLabels(o)
 			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, lo.Assign(map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
