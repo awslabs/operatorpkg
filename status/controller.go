@@ -62,6 +62,7 @@ type Option struct {
 	GaugeMetricLabels     []string
 	MetricFields          map[string]string
 	GaugeMetricFields     map[string]string
+	HistogramBuckets      []float64
 }
 
 func EmitDeprecatedMetrics(o *Option) {
@@ -92,6 +93,12 @@ func WithGaugeFields(fields map[string]string) func(*Option) {
 	}
 }
 
+func WithHistogramBuckets(buckets []float64) func(*Option) {
+	return func(o *Option) {
+		o.HistogramBuckets = buckets
+	}
+}
+
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *Controller[T] {
 	options := option.Resolve(opts...)
 	obj := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(runtime.Object)
@@ -107,7 +114,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 		kubeClient:                  client,
 		eventRecorder:               eventRecorder,
 		emitDeprecatedMetrics:       options.EmitDeprecatedMetrics,
-		ConditionDuration: conditionDurationMetric(strings.ToLower(gvk.Kind), lo.Map(
+		ConditionDuration: conditionDurationMetric(strings.ToLower(gvk.Kind), options.HistogramBuckets, lo.Map(
 			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
 			func(k string, _ int) string { return toPrometheusLabel(k) })...),
 		ConditionCount: conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(
@@ -128,7 +135,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 				append(lo.Keys(options.MetricFields), lo.Keys(options.GaugeMetricFields)...),
 				append(options.MetricLabels, options.GaugeMetricLabels...)...,
 			), func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationDuration: terminationDurationMetric(strings.ToLower(gvk.Kind), lo.Map(
+		TerminationDuration: terminationDurationMetric(strings.ToLower(gvk.Kind), options.HistogramBuckets, lo.Map(
 			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
 			func(k string, _ int) string { return toPrometheusLabel(k) })...),
 	}
