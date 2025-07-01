@@ -21,7 +21,7 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 	sigs.k8s.io/controller-runtime v0.21.0
-	sigs.k8s.io/yaml v1.4.0
+	sigs.k8s.io/yaml v1.5.0
 )
 
 require (
@@ -55,6 +55,7 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
