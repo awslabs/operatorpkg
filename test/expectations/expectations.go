@@ -131,11 +131,16 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 // and then deleting the object immediately after. This will hold the object until the finalizer is patched out
 func ExpectDeletionTimestampSet(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
-	for _, o := range objects {
-		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
-		controllerutil.AddFinalizer(o, "testing/finalizer")
-		Expect(c.Update(ctx, o)).To(Succeed())
-		Expect(c.Delete(ctx, o)).To(Succeed())
+	for _, object := range objects {
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
+		controllerutil.AddFinalizer(object, "testing/finalizer")
+		Expect(c.Update(ctx, object)).To(Succeed())
+		Expect(c.Delete(ctx, object)).To(Succeed())
+		DeferCleanup(func(obj client.Object) {
+			mergeFrom := client.MergeFrom(obj.DeepCopyObject().(client.Object))
+			obj.SetFinalizers([]string{})
+			Expect(client.IgnoreNotFound(c.Patch(ctx, obj, mergeFrom))).To(Succeed())
+		}, object)
 	}
 }
 
