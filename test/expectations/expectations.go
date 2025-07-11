@@ -67,14 +67,14 @@ func ExpectReconciled(ctx context.Context, reconciler reconcile.Reconciler, obje
 	return result
 }
 
-func ExpectRequeued(result reconcile.Result) {
+func ExpectRequeued(assertion types.Assertion) {
 	GinkgoHelper()
-	Expect(result.Requeue || result.RequeueAfter != lo.Empty[time.Duration]())
+	assertion.To(Or(HaveField("Requeue", BeTrue()), HaveField("RequeueAfter", Not(Equal(lo.Empty[time.Duration]())))))
 }
 
-func ExpectNotRequeued(result reconcile.Result) {
+func ExpectNotRequeued(assertion types.Assertion) {
 	GinkgoHelper()
-	Expect(!result.Requeue && result.RequeueAfter == lo.Empty[time.Duration]())
+	assertion.To(And(HaveField("Requeue", BeFalse()), HaveField("RequeueAfter", Equal(lo.Empty[time.Duration]()))))
 }
 
 func ExpectObject[T client.Object](ctx context.Context, c client.Client, obj T) types.Assertion {
@@ -98,7 +98,10 @@ func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Obje
 func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, o := range objects {
+		deletionTimestampSet := !o.GetDeletionTimestamp().IsZero()
 		current := o.DeepCopyObject().(client.Object)
+		statuscopy := o.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
+
 		// Create or Update
 		if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
 			if errors.IsNotFound(err) {
@@ -110,9 +113,17 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 			o.SetResourceVersion(current.GetResourceVersion())
 			Expect(c.Update(ctx, o)).To(Succeed())
 		}
+		// Update status
+		statuscopy.SetResourceVersion(o.GetResourceVersion())
+		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError("the server could not find the requested resource"))) // Some objects do not have a status
 
 		// Re-get the object to grab the updated spec and status
-		ExpectObject(ctx, c, o)
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
+
+		// Set the deletion timestamp by adding a finalizer and deleting
+		if deletionTimestampSet {
+			ExpectDeletionTimestampSet(ctx, c, o)
+		}
 	}
 }
 
@@ -173,8 +184,10 @@ func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client
 func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, o := range objects {
-		Expect(client.IgnoreNotFound(c.Delete(ctx, o))).To(Succeed())
-		Expect(client.IgnoreNotFound(c.Get(ctx, client.ObjectKeyFromObject(o), o))).To(Succeed())
+		if err := c.Delete(ctx, o, &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}); !errors.IsNotFound(err) {
+			Expect(err).To(BeNil())
+		}
+		ExpectNotFound(ctx, c, o)
 	}
 }
 
