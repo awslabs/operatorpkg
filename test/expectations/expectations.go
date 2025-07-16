@@ -67,14 +67,14 @@ func ExpectReconciled(ctx context.Context, reconciler reconcile.Reconciler, obje
 	return result
 }
 
-func ExpectRequeued(assertion types.Assertion) {
+func ExpectRequeued(result reconcile.Result) {
 	GinkgoHelper()
-	assertion.To(Or(HaveField("Requeue", BeTrue()), HaveField("RequeueAfter", Not(Equal(lo.Empty[time.Duration]())))))
+	Expect(result.Requeue || result.RequeueAfter != lo.Empty[time.Duration]())
 }
 
-func ExpectNotRequeued(assertion types.Assertion) {
+func ExpectNotRequeued(result reconcile.Result) {
 	GinkgoHelper()
-	assertion.To(And(HaveField("Requeue", BeFalse()), HaveField("RequeueAfter", Equal(lo.Empty[time.Duration]()))))
+	Expect(!result.Requeue && result.RequeueAfter == lo.Empty[time.Duration]())
 }
 
 func ExpectObject[T client.Object](ctx context.Context, c client.Client, obj T) types.Assertion {
