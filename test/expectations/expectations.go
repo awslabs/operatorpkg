@@ -97,22 +97,33 @@ func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Obje
 
 func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
-	for _, o := range objects {
-		current := o.DeepCopyObject().(client.Object)
+	for _, object := range objects {
+		deletionTimestampSet := !object.GetDeletionTimestamp().IsZero()
+		current := object.DeepCopyObject().(client.Object)
+		statuscopy := object.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
+
 		// Create or Update
 		if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
 			if errors.IsNotFound(err) {
-				Expect(c.Create(ctx, o)).To(Succeed())
+				Expect(c.Create(ctx, object)).To(Succeed())
 			} else {
 				Expect(err).ToNot(HaveOccurred())
 			}
 		} else {
-			o.SetResourceVersion(current.GetResourceVersion())
-			Expect(c.Update(ctx, o)).To(Succeed())
+			object.SetResourceVersion(current.GetResourceVersion())
+			Expect(c.Update(ctx, object)).To(Succeed())
 		}
+		// Update status
+		statuscopy.SetResourceVersion(object.GetResourceVersion())
+		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("Not found"), ContainSubstring("the server could not find the requested resource"))))) // Some objects do not have a status
 
 		// Re-get the object to grab the updated spec and status
-		ExpectObject(ctx, c, o)
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
+
+		// Set the deletion timestamp by adding a finalizer and deleting
+		if deletionTimestampSet {
+			ExpectDeletionTimestampSet(ctx, c, object)
+		}
 	}
 }
 
