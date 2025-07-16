@@ -100,7 +100,6 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	for _, object := range objects {
 		deletionTimestampSet := !object.GetDeletionTimestamp().IsZero()
 		current := object.DeepCopyObject().(client.Object)
-		statuscopy := object.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
 
 		// Create or Update
 		if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
@@ -113,9 +112,6 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 			object.SetResourceVersion(current.GetResourceVersion())
 			Expect(c.Update(ctx, object)).To(Succeed())
 		}
-		// Update status
-		statuscopy.SetResourceVersion(object.GetResourceVersion())
-		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError("the server could not find the requested resource"))) // Some objects do not have a status
 
 		// Re-get the object to grab the updated spec and status
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
