@@ -97,22 +97,33 @@ func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Obje
 
 func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
-	for _, o := range objects {
-		current := o.DeepCopyObject().(client.Object)
+	for _, object := range objects {
+		deletionTimestampSet := !object.GetDeletionTimestamp().IsZero()
+		current := object.DeepCopyObject().(client.Object)
+		statuscopy := object.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
+
 		// Create or Update
 		if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
 			if errors.IsNotFound(err) {
-				Expect(c.Create(ctx, o)).To(Succeed())
+				Expect(c.Create(ctx, object)).To(Succeed())
 			} else {
 				Expect(err).ToNot(HaveOccurred())
 			}
 		} else {
-			o.SetResourceVersion(current.GetResourceVersion())
-			Expect(c.Update(ctx, o)).To(Succeed())
+			object.SetResourceVersion(current.GetResourceVersion())
+			Expect(c.Update(ctx, object)).To(Succeed())
 		}
+		// Update status
+		statuscopy.SetResourceVersion(object.GetResourceVersion())
+		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("not found"), ContainSubstring("the server could not find the requested resource"))))) // Some objects do not have a status
 
 		// Re-get the object to grab the updated spec and status
-		ExpectObject(ctx, c, o)
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
+
+		// Set the deletion timestamp by adding a finalizer and deleting
+		if deletionTimestampSet {
+			ExpectDeletionTimestampSet(ctx, c, object)
+		}
 	}
 }
 
@@ -120,11 +131,16 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 // and then deleting the object immediately after. This will hold the object until the finalizer is patched out
 func ExpectDeletionTimestampSet(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
-	for _, o := range objects {
-		Expect(c.Get(ctx, client.ObjectKeyFromObject(o), o)).To(Succeed())
-		controllerutil.AddFinalizer(o, "testing/finalizer")
-		Expect(c.Update(ctx, o)).To(Succeed())
-		Expect(c.Delete(ctx, o)).To(Succeed())
+	for _, object := range objects {
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
+		controllerutil.AddFinalizer(object, "testing/finalizer")
+		Expect(c.Update(ctx, object)).To(Succeed())
+		Expect(c.Delete(ctx, object)).To(Succeed())
+		DeferCleanup(func(obj client.Object) {
+			mergeFrom := client.MergeFrom(obj.DeepCopyObject().(client.Object))
+			obj.SetFinalizers([]string{})
+			Expect(client.IgnoreNotFound(c.Patch(ctx, obj, mergeFrom))).To(Succeed())
+		}, object)
 	}
 }
 
@@ -173,7 +189,7 @@ func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client
 func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, o := range objects {
-		Expect(client.IgnoreNotFound(c.Delete(ctx, o))).To(Succeed())
+		Expect(client.IgnoreNotFound(c.Delete(ctx, o, &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}))).To(Succeed())
 		Expect(client.IgnoreNotFound(c.Get(ctx, client.ObjectKeyFromObject(o), o))).To(Succeed())
 	}
 }
