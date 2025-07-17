@@ -115,7 +115,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 		}
 		// Update status
 		statuscopy.SetResourceVersion(object.GetResourceVersion())
-		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("Not found"), ContainSubstring("the server could not find the requested resource"))))) // Some objects do not have a status
+		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("not found"), ContainSubstring("the server could not find the requested resource"))))) // Some objects do not have a status
 
 		// Re-get the object to grab the updated spec and status
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
@@ -189,10 +189,8 @@ func ExpectStatusUpdated(ctx context.Context, c client.Client, objects ...client
 func ExpectDeleted(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, o := range objects {
-		if err := c.Delete(ctx, o, &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}); !errors.IsNotFound(err) {
-			Expect(err).To(BeNil())
-		}
-		ExpectNotFound(ctx, c, o)
+		Expect(client.IgnoreNotFound(c.Delete(ctx, o, &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}))).To(Succeed())
+		Expect(client.IgnoreNotFound(c.Get(ctx, client.ObjectKeyFromObject(o), o))).To(Succeed())
 	}
 }
 
