@@ -79,7 +79,6 @@ var _ = Describe("Reconciler", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.RequeueAfter).To(Equal(backoff))
 	})
-
 	It("should return the original result without backoff when RequeueWithBackoff is not set", func() {
 		mockReconciler := &MockReconciler{
 			result: reconciler.Result{},
@@ -97,7 +96,6 @@ var _ = Describe("Reconciler", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.RequeueAfter).To(BeZero())
 	})
-
 	It("should return a result with RequeueAfter set", func() {
 		// Create a mock reconciler that returns RequeueWithBackoff = true
 		mockReconciler := &MockReconciler{
@@ -140,7 +138,6 @@ var _ = Describe("Reconciler", func() {
 		Expect(err).To(Equal(expectedErr))
 		Expect(result.RequeueAfter).To(BeZero())
 	})
-
 	It("should use custom rate limiter for backoff", func() {
 		backoffDuration := 10 * time.Second
 		mockRateLimiter := &MockRateLimiter[reconcile.Request]{
