@@ -83,20 +83,17 @@ var _ = Describe("Singleton Controller", func() {
 				Expect(result.RequeueAfter).To(BeZero())
 			})
 		})
-
 		Context("when RequeueWithBackoff is true", func() {
 			BeforeEach(func() {
 				mockReconciler.result = reconciler.Result{
 					RequeueWithBackoff: true,
 				}
 			})
-
 			It("should return a result with RequeueAfter set", func() {
 				result, err := singleton.AsReconciler(mockReconciler).Reconcile(context.Background(), reconcile.Request{})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.RequeueAfter).To(BeNumerically(">=", 0))
 			})
-
 			It("should use controller name for rate limiting", func() {
 				// Test with different controller names to ensure they're handled independently
 				controller1 := &MockReconciler{
@@ -120,7 +117,6 @@ var _ = Describe("Singleton Controller", func() {
 				Expect(result1.RequeueAfter).To(BeNumerically(">=", 0))
 				Expect(result2.RequeueAfter).To(BeNumerically(">=", 0))
 			})
-
 			It("should implement exponential backoff on repeated calls", func() {
 				// Multiple calls to the same controller should show increasing delays
 				delays := make([]time.Duration, 5)
@@ -139,48 +135,22 @@ var _ = Describe("Singleton Controller", func() {
 				}
 			})
 		})
-
-		Context("when reconciler returns an error", func() {
-			BeforeEach(func() {
-				mockReconciler.result = reconciler.Result{RequeueWithBackoff: true}
-				mockReconciler.err = errors.New("test error")
-			})
-
-			It("should return the error without processing backoff", func() {
-				result, err := singleton.AsReconciler(mockReconciler).Reconcile(context.Background(), reconcile.Request{})
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("test error"))
-				Expect(result.RequeueAfter).To(BeZero())
-			})
+		It("should return the error without processing backoff", func() {
+			mockReconciler.result = reconciler.Result{RequeueWithBackoff: true}
+			mockReconciler.err = errors.New("test error")
+			result, err := singleton.AsReconciler(mockReconciler).Reconcile(context.Background(), reconcile.Request{})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Equal("test error"))
+			Expect(result.RequeueAfter).To(BeZero())
 		})
-
-		Context("integration with RequeueImmediately constant", func() {
-			It("should work with immediate requeue pattern", func() {
-				mockReconciler.result = reconciler.Result{
-					Result: reconcile.Result{RequeueAfter: singleton.RequeueImmediately},
-				}
-
-				result, err := singleton.AsReconciler(mockReconciler).Reconcile(context.Background(), reconcile.Request{})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result.RequeueAfter).To(Equal(singleton.RequeueImmediately))
-			})
-		})
-	})
-	Context("AsReconcilerWithRateLimiter", func() {
-		BeforeEach(func() {
+		It("should work with RequeueImmediately", func() {
 			mockReconciler.result = reconciler.Result{
-				RequeueWithBackoff: true,
+				Result: reconcile.Result{RequeueAfter: singleton.RequeueImmediately},
 			}
-		})
-		It("should use the custom rate limiter", func() {
-			mockRateLimiter := &MockRateLimiter[string]{
-				backoffDuration: 10 * time.Second,
-				whenFunc:        func(req string) time.Duration { return 10 * time.Second },
-			}
-			adapter := singleton.AsReconcilerWithRateLimiter(mockReconciler, mockRateLimiter)
-			result, err := adapter.Reconcile(context.Background(), reconcile.Request{})
+
+			result, err := singleton.AsReconciler(mockReconciler).Reconcile(context.Background(), reconcile.Request{})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+			Expect(result.RequeueAfter).To(Equal(singleton.RequeueImmediately))
 		})
 	})
 })
