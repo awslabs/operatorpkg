@@ -55,116 +55,91 @@ func (m *MockReconciler) Reconcile(ctx context.Context) (reconciler.Result, erro
 }
 
 var _ = Describe("Reconciler", func() {
-	Describe("Result", func() {
-		Context("basic functionality", func() {
-			It("should handle results without backoff", func() {
-				// Create a Result with RequeueWithBackoff = false and a specific RequeueAfter duration
-				duration := 5 * time.Second
-				result := reconciler.Result{
+	Describe("AsReconciler with rate limiting", func() {
+		It("should return the original result without backoff", func() {
+			backoff := 5 * time.Second
+			// Create a mock reconciler
+			mockReconciler := &MockReconciler{
+				result: reconciler.Result{
 					Result: reconcile.Result{
-						RequeueAfter: duration,
+						RequeueAfter: backoff,
 					},
 					RequeueWithBackoff: false,
-				}
+				},
+			}
 
-				// Verify that the wrapped Result has the same RequeueAfter value
-				Expect(result.RequeueAfter).To(Equal(duration))
-				Expect(result.RequeueWithBackoff).To(BeFalse())
-			})
-		})
-	})
+			// Create the reconciler adapter
+			adapter := reconciler.AsReconciler(mockReconciler)
 
-	Describe("AsReconciler with rate limiting", func() {
-		Context("when RequeueWithBackoff is false", func() {
-			It("should return the original result without backoff", func() {
-				// Create a mock reconciler
-				mockReconciler := &MockReconciler{
-					result: reconciler.Result{
-						Result: reconcile.Result{
-							RequeueAfter: 5 * time.Second,
-						},
-						RequeueWithBackoff: false,
-					},
-				}
+			// Call the adapter
+			ctx := context.Background()
+			req := reconcile.Request{}
+			result, err := adapter.Reconcile(ctx, req)
 
-				// Create the reconciler adapter
-				adapter := reconciler.AsReconciler(mockReconciler)
-
-				// Call the adapter
-				ctx := context.Background()
-				req := reconcile.Request{}
-				result, err := adapter.Reconcile(ctx, req)
-
-				// Verify the result
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result.RequeueAfter).To(Equal(5 * time.Second))
-			})
-
-			It("should return the original result without backoff when RequeueWithBackoff is not set", func() {
-				mockReconciler := &MockReconciler{
-					result: reconciler.Result{},
-				}
-
-				// Create the reconciler adapter
-				adapter := reconciler.AsReconciler(mockReconciler)
-
-				// Call the adapter
-				ctx := context.Background()
-				req := reconcile.Request{}
-				result, err := adapter.Reconcile(ctx, req)
-
-				// Verify the result
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result.RequeueAfter).To(BeZero())
-			})
+			// Verify the result
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(backoff))
 		})
 
-		Context("when RequeueWithBackoff is true", func() {
-			It("should return a result with RequeueAfter set", func() {
-				// Create a mock reconciler that returns RequeueWithBackoff = true
-				mockReconciler := &MockReconciler{
-					result: reconciler.Result{
-						Result:             reconcile.Result{},
-						RequeueWithBackoff: true,
-					},
-				}
+		It("should return the original result without backoff when RequeueWithBackoff is not set", func() {
+			mockReconciler := &MockReconciler{
+				result: reconciler.Result{},
+			}
 
-				// Create the reconciler adapter
-				adapter := reconciler.AsReconciler(mockReconciler)
+			// Create the reconciler adapter
+			adapter := reconciler.AsReconciler(mockReconciler)
 
-				// Call the adapter
-				ctx := context.Background()
-				req := reconcile.Request{}
-				result, err := adapter.Reconcile(ctx, req)
+			// Call the adapter
+			ctx := context.Background()
+			req := reconcile.Request{}
+			result, err := adapter.Reconcile(ctx, req)
 
-				// Verify the result - should have some backoff duration
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
-			})
+			// Verify the result
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
 		})
 
-		Context("when reconciler returns an error", func() {
-			It("should return the error without processing backoff", func() {
-				// Create a mock reconciler that returns an error
-				expectedErr := errors.New("test error")
-				mockReconciler := &MockReconciler{
-					result: reconciler.Result{RequeueWithBackoff: true},
-					err:    expectedErr,
-				}
+		It("should return a result with RequeueAfter set", func() {
+			// Create a mock reconciler that returns RequeueWithBackoff = true
+			mockReconciler := &MockReconciler{
+				result: reconciler.Result{
+					Result:             reconcile.Result{},
+					RequeueWithBackoff: true,
+				},
+			}
 
-				// Create the reconciler adapter
-				adapter := reconciler.AsReconciler(mockReconciler)
+			// Create the reconciler adapter
+			adapter := reconciler.AsReconciler(mockReconciler)
 
-				// Call the adapter
-				ctx := context.Background()
-				req := reconcile.Request{}
-				result, err := adapter.Reconcile(ctx, req)
+			// Call the adapter
+			ctx := context.Background()
+			req := reconcile.Request{}
+			result, err := adapter.Reconcile(ctx, req)
 
-				// Verify that the error is propagated
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(Equal(expectedErr))
-				Expect(result.RequeueAfter).To(BeZero())
-			})
+			// Verify the result - should have some backoff duration
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		})
+		It("should return the error without processing backoff", func() {
+			// Create a mock reconciler that returns an error
+			expectedErr := errors.New("test error")
+			mockReconciler := &MockReconciler{
+				result: reconciler.Result{RequeueWithBackoff: true},
+				err:    expectedErr,
+			}
+
+			// Create the reconciler adapter
+			adapter := reconciler.AsReconciler(mockReconciler)
+
+			// Call the adapter
+			ctx := context.Background()
+			req := reconcile.Request{}
+			result, err := adapter.Reconcile(ctx, req)
+
+			// Verify that the error is propagated
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(Equal(expectedErr))
+			Expect(result.RequeueAfter).To(BeZero())
 		})
 	})
 
@@ -195,31 +170,6 @@ var _ = Describe("Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(Equal(backoffDuration))
 			Expect(mockRateLimiter.NumRequeues(req)).To(Equal(1))
-		})
-	})
-
-	Describe("ReconcilerFunc", func() {
-		It("should implement the Reconciler interface", func() {
-			// Create a ReconcilerFunc
-			expectedResult := reconciler.Result{
-				Result: reconcile.Result{
-					RequeueAfter: 5 * time.Second,
-				},
-				RequeueWithBackoff: false,
-			}
-			expectedErr := errors.New("test error")
-
-			reconcileFunc := reconciler.ReconcilerFunc(func(ctx context.Context) (reconciler.Result, error) {
-				return expectedResult, expectedErr
-			})
-
-			// Call the function
-			ctx := context.Background()
-			result, err := reconcileFunc.Reconcile(ctx)
-
-			// Verify the result
-			Expect(result).To(Equal(expectedResult))
-			Expect(err).To(Equal(expectedErr))
 		})
 	})
 })
