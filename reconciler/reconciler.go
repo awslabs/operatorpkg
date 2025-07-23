@@ -13,19 +13,6 @@ type Result struct {
 	RequeueWithBackoff bool
 }
 
-// KeyExtractor extracts a rate limiter key from a context and reconcile.Request.
-type KeyExtractor[K any] interface {
-	Extract(ctx context.Context, req reconcile.Request) K
-}
-
-// RequestKeyExtractor extracts a reconcile.Request key for rate limiting.
-type RequestKeyExtractor struct{}
-
-// Extract returns the reconcile.Request as the key.
-func (e RequestKeyExtractor) Extract(ctx context.Context, req reconcile.Request) reconcile.Request {
-	return req
-}
-
 // Reconciler defines the interface for standard reconcilers
 type Reconciler interface {
 	Reconcile(ctx context.Context) (Result, error)
@@ -41,39 +28,27 @@ func (f ReconcilerFunc) Reconcile(ctx context.Context) (Result, error) {
 
 // AsReconciler creates a reconciler from a standard reconciler
 func AsReconciler(reconciler Reconciler) reconcile.Reconciler {
-	return AsGenericReconciler(
-		func(ctx context.Context, req reconcile.Request) (Result, error) {
-			return reconciler.Reconcile(ctx)
-		},
-		RequestKeyExtractor{},
+	return AsReconcilerWithRateLimiter(
+		reconciler,
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request](),
 	)
 }
 
-// AsGenericReconciler creates a reconciler with a specific key extractor
-func AsGenericReconciler[K comparable](
-	reconcileFunc func(ctx context.Context, req reconcile.Request) (Result, error),
-	keyExtractor KeyExtractor[K],
-) reconcile.Reconciler {
-	return AsGenericReconcilerWithRateLimiter(
-		reconcileFunc,
-		keyExtractor,
-		workqueue.DefaultTypedControllerRateLimiter[K](),
-	)
-}
-
-// AsGenericReconcilerWithRateLimiter creates a reconciler with a custom rate limiter
-func AsGenericReconcilerWithRateLimiter[K comparable](
-	reconcileFunc func(ctx context.Context, req reconcile.Request) (Result, error),
-	keyExtractor KeyExtractor[K],
-	rateLimiter workqueue.TypedRateLimiter[K],
+// AsReconcilerWithRateLimiter creates a reconciler with a specific key extractor
+func AsReconcilerWithRateLimiter(
+	reconciler Reconciler,
+	rateLimiter workqueue.TypedRateLimiter[reconcile.Request],
 ) reconcile.Reconciler {
 	return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		result, err := reconcileFunc(ctx, req)
+		result, err := reconciler.Reconcile(ctx)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 		if result.RequeueWithBackoff {
-			return reconcile.Result{RequeueAfter: rateLimiter.When(keyExtractor.Extract(ctx, req))}, nil
+			return reconcile.Result{RequeueAfter: rateLimiter.When(req)}, nil
+		}
+		if result.RequeueAfter > 0 {
+			return reconcile.Result{RequeueAfter: result.RequeueAfter}, nil
 		}
 		return result.Result, nil
 	})

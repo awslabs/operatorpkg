@@ -24,39 +24,33 @@ type Reconciler interface {
 	Reconcile(ctx context.Context) (reconciler.Result, error)
 }
 
-// StringKeyExtractor extracts the controller name as the rate limiter key
-type StringKeyExtractor struct {
-	reconciler Reconciler
-}
-
-// Extract returns the controller name as the key
-func (e StringKeyExtractor) Extract(ctx context.Context, req reconcile.Request) string {
-	return e.reconciler.Name()
-}
-
 // In response to Requeue: True being deprecated via: https://github.com/kubernetes-sigs/controller-runtime/pull/3107/files
 // This uses a bucket and per item delay but the item will be the same because the key is the controller name.
 // This implements the same behavior as Requeue: True.
 
 // AsReconciler creates a controller-runtime reconciler from a singleton reconciler
 func AsReconciler(rec Reconciler) reconcile.Reconciler {
-	return reconciler.AsGenericReconciler(
-		func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
-			return rec.Reconcile(ctx)
-		},
-		StringKeyExtractor{reconciler: rec},
-	)
+	return AsReconcilerWithRateLimiter(rec, workqueue.DefaultTypedControllerRateLimiter[string]())
 }
 
 // AsReconcilerWithRateLimiter creates a controller-runtime reconciler with a custom rate limiter
-func AsReconcilerWithRateLimiter(rec Reconciler, rateLimiter workqueue.TypedRateLimiter[string]) reconcile.Reconciler {
-	return reconciler.AsGenericReconcilerWithRateLimiter(
-		func(ctx context.Context, req reconcile.Request) (reconciler.Result, error) {
-			return rec.Reconcile(ctx)
-		},
-		StringKeyExtractor{reconciler: rec},
-		rateLimiter,
-	)
+func AsReconcilerWithRateLimiter(
+	rec Reconciler,
+	rateLimiter workqueue.TypedRateLimiter[string],
+) reconcile.Reconciler {
+	return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		result, err := rec.Reconcile(ctx)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if result.RequeueWithBackoff {
+			return reconcile.Result{RequeueAfter: rateLimiter.When(rec.Name())}, nil
+		}
+		if result.RequeueAfter > 0 {
+			return reconcile.Result{RequeueAfter: result.RequeueAfter}, nil
+		}
+		return result.Result, nil
+	})
 }
 
 // Source creates a source for singleton controllers
