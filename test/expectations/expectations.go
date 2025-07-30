@@ -226,7 +226,11 @@ func expectCleanedUp(ctx context.Context, c client.Client, force bool, objectLis
 						g.Expect(c.Patch(ctx, &item, client.MergeFrom(stored))).To(Succeed())
 					}
 					if item.GetDeletionTimestamp().IsZero() {
-						g.Expect(client.IgnoreNotFound(c.Delete(ctx, &item, client.PropagationPolicy(metav1.DeletePropagationForeground), &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}))).To(Succeed())
+						if force {
+							g.Expect(client.IgnoreNotFound(c.Delete(ctx, &item, &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}))).To(Succeed())
+						} else {
+							g.Expect(client.IgnoreNotFound(c.Delete(ctx, &item, client.PropagationPolicy(metav1.DeletePropagationForeground), &client.DeleteOptions{GracePeriodSeconds: lo.ToPtr(int64(0))}))).To(Succeed())
+						}
 					}
 				}
 				g.Expect(c.List(ctx, metaList, client.Limit(1))).To(Succeed())
