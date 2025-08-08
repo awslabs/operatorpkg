@@ -26,6 +26,10 @@ const (
 	ConditionSucceeded = "Succeeded"
 )
 
+// ConditionDegraded is a custom extension to the standard Kubernetes condition statuses.
+// It represents a state where the resource is operational but in a degraded state.
+const ConditionDegraded metav1.ConditionStatus = "Degraded"
+
 // Condition aliases the upstream type and adds additional helper methods
 type Condition metav1.Condition
 
@@ -48,6 +52,13 @@ func (c *Condition) IsUnknown() bool {
 		return true
 	}
 	return c.Status == metav1.ConditionUnknown
+}
+
+func (c *Condition) IsDegraded() bool {
+	if c == nil {
+		return false
+	}
+	return c.Status == ConditionDegraded
 }
 
 func (c *Condition) GetStatus() metav1.ConditionStatus {

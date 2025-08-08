@@ -228,6 +228,17 @@ func (c ConditionSet) SetFalse(conditionType string, reason, message string) (mo
 	})
 }
 
+// SetDegraded sets the status of conditionType to Degraded with the reason, and also sets the root condition
+// to Degraded if no other dependent condition is in a more severe state.
+func (c ConditionSet) SetDegraded(conditionType string, reason, message string) (modified bool) {
+	return c.Set(Condition{
+		Type:    conditionType,
+		Status:  ConditionDegraded,
+		Reason:  reason,
+		Message: message,
+	})
+}
+
 // recomputeRootCondition marks the root condition to true if all other dependents are also true.
 func (c ConditionSet) recomputeRootCondition(conditionType string) {
 	if conditionType == c.root {
@@ -236,7 +247,23 @@ func (c ConditionSet) recomputeRootCondition(conditionType string) {
 	if conditions := c.findUnhealthyDependents(); len(conditions) == 0 {
 		c.SetTrue(c.root)
 	} else {
-		// The root condition is no longer unknown as soon as any dependent condition goes false with the latest observedGeneration
+		// Check for Degraded conditions first (highest precedence)
+		if lo.ContainsBy(conditions, func(condition Condition) bool {
+			return condition.IsDegraded() &&
+				condition.ObservedGeneration == c.object.GetGeneration()
+		}) {
+			c.Set(Condition{
+				Type:   c.root,
+				Status: ConditionDegraded,
+				Reason: "DegradedDependents",
+				Message: strings.Join(lo.Map(conditions, func(condition Condition, _ int) string {
+					return fmt.Sprintf("%s=%s", condition.Type, condition.Status)
+				}), ", "),
+			})
+			return
+		}
+
+		// If no Degraded conditions, check for False conditions (next precedence)
 		status := lo.Ternary(
 			lo.ContainsBy(conditions, func(condition Condition) bool {
 				return condition.IsFalse() &&
@@ -270,7 +297,7 @@ func (c ConditionSet) findUnhealthyDependents() []Condition {
 		return lo.Contains(c.dependents, condition.Type)
 	})
 	conditions = lo.Filter(conditions, func(condition Condition, _ int) bool {
-		return condition.IsFalse() || condition.IsUnknown() || condition.ObservedGeneration != c.object.GetGeneration()
+		return condition.IsDegraded() || condition.IsFalse() || condition.IsUnknown() || condition.ObservedGeneration != c.object.GetGeneration()
 	})
 
 	// Sort set conditions by time.
