@@ -195,4 +195,45 @@ var _ = Describe("Conditions", func() {
 		Expect(conditions.Root().Status).To(Equal(metav1.ConditionTrue))
 		Expect(conditions.Root().ObservedGeneration).To(Equal(int64(2)))
 	})
+
+	It("should correctly handle degraded conditions", func() {
+		testObject := test.Object(&test.CustomObject{})
+		conditions := testObject.StatusConditions()
+
+		// Set a condition to Degraded
+		Expect(conditions.SetDegraded(test.ConditionTypeFoo, "reason", "message")).To(BeTrue())
+		fooCondition := conditions.Get(test.ConditionTypeFoo)
+		Expect(fooCondition.Status).To(Equal(status.ConditionDegraded))
+		Expect(fooCondition.Reason).To(Equal("reason"))
+		Expect(fooCondition.Message).To(Equal("message"))
+
+		// Root condition should be Degraded when any dependent is Degraded
+		Expect(conditions.Root().Status).To(Equal(status.ConditionDegraded))
+		Expect(conditions.Root().Reason).To(Equal("DegradedDependents"))
+
+		// Test precedence: Degraded > False
+		Expect(conditions.SetFalse(test.ConditionTypeBar, "reason", "message")).To(BeTrue())
+		Expect(conditions.Root().Status).To(Equal(status.ConditionDegraded))
+
+		// Test precedence: when Degraded is resolved, False takes precedence
+		Expect(conditions.SetTrue(test.ConditionTypeFoo)).To(BeTrue())
+		Expect(conditions.Root().Status).To(Equal(metav1.ConditionFalse))
+
+		// Test precedence: when False is resolved, Unknown takes precedence
+		Expect(conditions.SetUnknown(test.ConditionTypeBar)).To(BeTrue())
+		Expect(conditions.Root().Status).To(Equal(metav1.ConditionUnknown))
+
+		// Test precedence: when all conditions are True, root is True
+		Expect(conditions.SetTrue(test.ConditionTypeBar)).To(BeTrue())
+		Expect(conditions.Root().Status).To(Equal(metav1.ConditionTrue))
+
+		// Test IsDegraded helper method
+		Expect(conditions.SetDegraded(test.ConditionTypeFoo, "reason", "message")).To(BeTrue())
+		Expect(conditions.Get(test.ConditionTypeFoo).IsDegraded()).To(BeTrue())
+		Expect(conditions.Get(test.ConditionTypeBar).IsDegraded()).To(BeFalse())
+
+		// Test nil condition
+		var nilCondition *status.Condition
+		Expect(nilCondition.IsDegraded()).To(BeFalse())
+	})
 })
