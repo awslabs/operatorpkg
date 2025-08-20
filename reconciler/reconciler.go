@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// Result is a wrapper around reconcile.Result that adds RequeueWithBackoff functionality.
+// Result adds Requeue functionality back to reconcile results.
 type Result struct {
 	RequeueAfter time.Duration
 	Requeue      bool
@@ -19,7 +19,7 @@ type Reconciler interface {
 	Reconcile(ctx context.Context, req reconcile.Request) (Result, error)
 }
 
-// AsReconciler creates a reconciler from a standard reconciler
+// AsReconciler creates a reconciler with a default rate-limiter
 func AsReconciler(reconciler Reconciler) reconcile.Reconciler {
 	return AsReconcilerWithRateLimiter(
 		reconciler,
