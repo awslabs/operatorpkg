@@ -62,6 +62,7 @@ type Option struct {
 	GaugeMetricLabels     []string
 	MetricFields          map[string]string
 	GaugeMetricFields     map[string]string
+	HistogramBuckets      []float64
 }
 
 func EmitDeprecatedMetrics(o *Option) {
@@ -92,6 +93,12 @@ func WithGaugeFields(fields map[string]string) func(*Option) {
 	}
 }
 
+func WithHistogramBuckets(buckets []float64) func(*Option) {
+	return func(o *Option) {
+		o.HistogramBuckets = buckets
+	}
+}
+
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *Controller[T] {
 	options := option.Resolve(opts...)
 	obj := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(runtime.Object)
@@ -107,7 +114,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 		kubeClient:                  client,
 		eventRecorder:               eventRecorder,
 		emitDeprecatedMetrics:       options.EmitDeprecatedMetrics,
-		ConditionDuration: conditionDurationMetric(strings.ToLower(gvk.Kind), lo.Map(
+		ConditionDuration: conditionDurationMetric(strings.ToLower(gvk.Kind), options.HistogramBuckets, lo.Map(
 			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
 			func(k string, _ int) string { return toPrometheusLabel(k) })...),
 		ConditionCount: conditionCountMetric(strings.ToLower(gvk.Kind), lo.Map(
@@ -128,7 +135,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 				append(lo.Keys(options.MetricFields), lo.Keys(options.GaugeMetricFields)...),
 				append(options.MetricLabels, options.GaugeMetricLabels...)...,
 			), func(k string, _ int) string { return toPrometheusLabel(k) })...),
-		TerminationDuration: terminationDurationMetric(strings.ToLower(gvk.Kind), lo.Map(
+		TerminationDuration: terminationDurationMetric(strings.ToLower(gvk.Kind), options.HistogramBuckets, lo.Map(
 			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
 			func(k string, _ int) string { return toPrometheusLabel(k) })...),
 	}
@@ -276,20 +283,24 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 
 	for _, observedCondition := range observedConditions.List() {
 		if currentCondition := currentConditions.Get(observedCondition.Type); currentCondition == nil || currentCondition.Status != observedCondition.Status || currentCondition.Reason != observedCondition.Reason || !maps.Equal(c.toAdditionalGaugeMetricLabels(o), observedGaugeLabels) {
+			// We want to check if the additional labels on the object has changed, and if so, delete the metrics with the old labels.
+			// Because we add the additional labels to the deletePartialMatchGaugeMetric() call based on if they have changed, it will not delete
+			// the deprecated metrics when the additional labels change but only when there is a change in the condition status because
+			// deprecated metrics to do not have the additional labels.
 			c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, lo.Assign(map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
-			}, observedGaugeLabels))
+			}, lo.Ternary(!maps.Equal(c.toAdditionalGaugeMetricLabels(o), observedGaugeLabels), observedGaugeLabels, nil)))
 			c.deletePartialMatchGaugeMetric(c.ConditionCurrentStatusSeconds, ConditionCurrentStatusSeconds, lo.Assign(map[string]string{
 				MetricLabelNamespace:       req.Namespace,
 				MetricLabelName:            req.Name,
 				pmetrics.LabelType:         observedCondition.Type,
 				MetricLabelConditionStatus: string(observedCondition.Status),
 				pmetrics.LabelReason:       observedCondition.Reason,
-			}, observedGaugeLabels))
+			}, lo.Ternary(!maps.Equal(c.toAdditionalGaugeMetricLabels(o), observedGaugeLabels), observedGaugeLabels, nil)))
 		}
 	}
 

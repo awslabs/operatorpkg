@@ -621,6 +621,8 @@ var _ = Describe("Controller", func() {
 	})
 	It("should ensure that we don't leak metrics when changing labels", func() {
 		metrics.Registry = prometheus.NewRegistry()
+		metrics.Registry.Register(status.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
+		metrics.Registry.Register(status.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
 		testObject := test.Object(&test.CustomObject{
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{
@@ -635,7 +637,7 @@ var _ = Describe("Controller", func() {
 		})
 		ExpectApplied(ctx, kubeClient, testObject)
 
-		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"))
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"), status.EmitDeprecatedMetrics)
 		ExpectReconciled(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
@@ -644,6 +646,9 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).ToNot(BeZero())
+
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		// Set empty label to a different value and ensure that we don't still keep track of the old metric
 		testObject.Labels["operator.pkg/key3"] = "value3"
@@ -660,6 +665,17 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge()).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"})).GetGauge().GetValue()).ToNot(BeZero())
+
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
+
+		testObject.StatusConditions().SetTrueWithReason(test.ConditionTypeFoo, "reason", "message")
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(0))
+		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeZero())
+		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
 	})
 	DescribeTable("should add labels to metrics", func(labelOption option.Function[status.Option], isGaugeOption bool) {
 		metrics.Registry = prometheus.NewRegistry()
@@ -747,6 +763,45 @@ var _ = Describe("Controller", func() {
 		Entry("when using WithFields", status.WithFields(map[string]string{"operator.pkg/key1": ".spec.field1", "operator.pkg/key2": ".spec.field2", "operator.pkg/key3": ".spec.field3"}), false),
 		Entry("when using WithGaugeFields", status.WithGaugeFields(map[string]string{"operator.pkg/key1": ".spec.field1", "operator.pkg/key2": ".spec.field2", "operator.pkg/key3": ".spec.field3"}), true),
 	)
+	It("should use custom histogram buckets when specified", func() {
+		customBuckets := []float64{0.1, 0.5, 1.0, 2.0, 5.0}
+		metrics.Registry = prometheus.NewRegistry()
+
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithHistogramBuckets(customBuckets))
+
+		testObject := test.Object(&test.CustomObject{})
+		testObject.StatusConditions() // initialize conditions
+
+		// Apply object and reconcile to set initial state
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// Wait a bit to ensure some time passes for duration measurement
+		time.Sleep(100 * time.Millisecond)
+
+		// Transition a condition to trigger histogram observation
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
+		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectReconciled(ctx, controller, testObject)
+
+		// Verify that the histogram metric exists and has data
+		metric := GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown))
+		Expect(metric).ToNot(BeNil())
+
+		histogram := metric.GetHistogram()
+		Expect(histogram).ToNot(BeNil())
+		Expect(histogram.GetSampleCount()).To(BeNumerically(">", 0))
+
+		// Verify custom buckets are being used by checking bucket count matches our custom buckets
+		// The histogram should have len(customBuckets) + 1 buckets (including +Inf)
+		buckets := histogram.GetBucket()
+		Expect(len(buckets)).To(Equal(len(customBuckets)))
+
+		// Verify the bucket upper bounds match our custom buckets
+		for i, bucket := range buckets {
+			Expect(bucket.GetUpperBound()).To(Equal(customBuckets[i]))
+		}
+	})
 })
 
 var _ = Describe("Generic Controller", func() {
