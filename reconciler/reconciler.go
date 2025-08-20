@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -9,21 +10,13 @@ import (
 
 // Result is a wrapper around reconcile.Result that adds RequeueWithBackoff functionality.
 type Result struct {
-	reconcile.Result
-	Requeue bool
+	RequeueAfter time.Duration
+	Requeue      bool
 }
 
 // Reconciler defines the interface for standard reconcilers
 type Reconciler interface {
-	Reconcile(ctx context.Context) (Result, error)
-}
-
-// ReconcilerFunc is a function type that implements the Reconciler interface.
-type ReconcilerFunc func(ctx context.Context) (Result, error)
-
-// Reconcile implements the Reconciler interface.
-func (r ReconcilerFunc) Func(ctx context.Context) (Result, error) {
-	return r(ctx)
+	Reconcile(ctx context.Context, req reconcile.Request) (Result, error)
 }
 
 // AsReconciler creates a reconciler from a standard reconciler
@@ -40,7 +33,7 @@ func AsReconcilerWithRateLimiter(
 	rateLimiter workqueue.TypedRateLimiter[reconcile.Request],
 ) reconcile.Reconciler {
 	return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		result, err := reconciler.Reconcile(ctx)
+		result, err := reconciler.Reconcile(ctx, req)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -51,6 +44,6 @@ func AsReconcilerWithRateLimiter(
 			return reconcile.Result{RequeueAfter: rateLimiter.When(req)}, nil
 		}
 		rateLimiter.Forget(req)
-		return result.Result, nil
+		return reconcile.Result{}, nil
 	})
 }

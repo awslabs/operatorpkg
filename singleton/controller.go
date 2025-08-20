@@ -22,6 +22,13 @@ const (
 type Reconciler interface {
 	Reconcile(ctx context.Context) (reconciler.Result, error)
 }
+type reconcilerAdapter struct {
+	Reconciler
+}
+
+func (r *reconcilerAdapter) Reconcile(ctx context.Context, _ reconcile.Request) (reconciler.Result, error) {
+	return r.Reconciler.Reconcile(ctx)
+}
 
 // In response to Requeue: True being deprecated via: https://github.com/kubernetes-sigs/controller-runtime/pull/3107/files
 // This uses a bucket and per item delay but the item will be the same because the key is the controller name.
@@ -29,7 +36,8 @@ type Reconciler interface {
 
 // AsReconciler creates a controller-runtime reconciler from a singleton reconciler
 func AsReconciler(rec Reconciler) reconcile.Reconciler {
-	return reconciler.AsReconciler(rec)
+	adapter := &reconcilerAdapter{Reconciler: rec}
+	return reconciler.AsReconciler(adapter)
 }
 
 // Source creates a source for singleton controllers

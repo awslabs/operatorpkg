@@ -3,7 +3,6 @@ package singleton_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/awslabs/operatorpkg/reconciler"
 	"github.com/awslabs/operatorpkg/singleton"
@@ -17,41 +16,12 @@ func Test(t *testing.T) {
 	RunSpecs(t, "Singleton")
 }
 
-var (
-	mockReconciler *MockReconciler
-)
-
-type MockRateLimiter[K comparable] struct {
-	whenFunc        func(K) time.Duration
-	numRequeues     int
-	backoffDuration time.Duration
-}
-
-func (m *MockRateLimiter[K]) When(key K) time.Duration {
-	if m.whenFunc != nil {
-		return m.whenFunc(key)
-	}
-	m.numRequeues++
-	return m.backoffDuration
-}
-
-func (m *MockRateLimiter[K]) NumRequeues(key K) int {
-	return m.numRequeues
-}
-
-func (m *MockRateLimiter[K]) Forget(key K) {
-	m.numRequeues = 0
-}
+var mockReconciler *MockReconciler
 
 // MockReconciler for testing
 type MockReconciler struct {
-	name   string
 	result reconciler.Result
 	err    error
-}
-
-func (m *MockReconciler) Name() string {
-	return m.name
 }
 
 func (m *MockReconciler) Reconcile(ctx context.Context) (reconciler.Result, error) {
@@ -61,18 +31,14 @@ func (m *MockReconciler) Reconcile(ctx context.Context) (reconciler.Result, erro
 var _ = Describe("Singleton Controller", func() {
 	Context("AsReconciler", func() {
 		BeforeEach(func() {
-			mockReconciler = &MockReconciler{
-				name: "test-controller",
-			}
+			mockReconciler = &MockReconciler{}
 		})
 		It("should return a result with RequeueAfter that is scoped to a controller", func() {
 			// Test with different controllers to ensure they're handled independently
 			controller1 := &MockReconciler{
-				name:   "controller-1",
 				result: reconciler.Result{Requeue: true},
 			}
 			controller2 := &MockReconciler{
-				name:   "controller-2",
 				result: reconciler.Result{Requeue: true},
 			}
 
@@ -87,6 +53,7 @@ var _ = Describe("Singleton Controller", func() {
 			Expect(err2).NotTo(HaveOccurred())
 			Expect(result1.RequeueAfter).To(BeNumerically(">=", 0))
 			Expect(result2.RequeueAfter).To(BeNumerically(">=", 0))
+			Expect(result1.RequeueAfter).To(Equal(result2.RequeueAfter))
 		})
 	})
 })
