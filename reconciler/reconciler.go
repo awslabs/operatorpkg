@@ -10,7 +10,7 @@ import (
 // Result is a wrapper around reconcile.Result that adds RequeueWithBackoff functionality.
 type Result struct {
 	reconcile.Result
-	RequeueWithBackoff bool
+	Requeue bool
 }
 
 // Reconciler defines the interface for standard reconcilers
@@ -22,8 +22,8 @@ type Reconciler interface {
 type ReconcilerFunc func(ctx context.Context) (Result, error)
 
 // Reconcile implements the Reconciler interface.
-func (f ReconcilerFunc) Reconcile(ctx context.Context) (Result, error) {
-	return f(ctx)
+func (r ReconcilerFunc) Func(ctx context.Context) (Result, error) {
+	return r(ctx)
 }
 
 // AsReconciler creates a reconciler from a standard reconciler
@@ -34,7 +34,7 @@ func AsReconciler(reconciler Reconciler) reconcile.Reconciler {
 	)
 }
 
-// AsReconcilerWithRateLimiter creates a reconciler with a specific key extractor
+// AsReconcilerWithRateLimiter creates a reconciler with a custom rate-limiter
 func AsReconcilerWithRateLimiter(
 	reconciler Reconciler,
 	rateLimiter workqueue.TypedRateLimiter[reconcile.Request],
@@ -44,12 +44,13 @@ func AsReconcilerWithRateLimiter(
 		if err != nil {
 			return reconcile.Result{}, err
 		}
-		if result.RequeueWithBackoff {
-			return reconcile.Result{RequeueAfter: rateLimiter.When(req)}, nil
-		}
 		if result.RequeueAfter > 0 {
 			return reconcile.Result{RequeueAfter: result.RequeueAfter}, nil
 		}
+		if result.Requeue {
+			return reconcile.Result{RequeueAfter: rateLimiter.When(req)}, nil
+		}
+		rateLimiter.Forget(req)
 		return result.Result, nil
 	})
 }

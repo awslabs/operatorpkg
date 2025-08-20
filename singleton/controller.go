@@ -20,7 +20,6 @@ const (
 
 // Reconciler defines the interface for singleton reconcilers
 type Reconciler interface {
-	Name() string
 	Reconcile(ctx context.Context) (reconciler.Result, error)
 }
 
@@ -30,27 +29,7 @@ type Reconciler interface {
 
 // AsReconciler creates a controller-runtime reconciler from a singleton reconciler
 func AsReconciler(rec Reconciler) reconcile.Reconciler {
-	return AsReconcilerWithRateLimiter(rec, workqueue.DefaultTypedControllerRateLimiter[string]())
-}
-
-// AsReconcilerWithRateLimiter creates a controller-runtime reconciler with a custom rate limiter
-func AsReconcilerWithRateLimiter(
-	rec Reconciler,
-	rateLimiter workqueue.TypedRateLimiter[string],
-) reconcile.Reconciler {
-	return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		result, err := rec.Reconcile(ctx)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-		if result.RequeueWithBackoff {
-			return reconcile.Result{RequeueAfter: rateLimiter.When(rec.Name())}, nil
-		}
-		if result.RequeueAfter > 0 {
-			return reconcile.Result{RequeueAfter: result.RequeueAfter}, nil
-		}
-		return result.Result, nil
-	})
+	return reconciler.AsReconciler(rec)
 }
 
 // Source creates a source for singleton controllers
