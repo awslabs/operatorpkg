@@ -38,6 +38,7 @@ func AsReconcilerWithRateLimiter(
 			return reconcile.Result{}, err
 		}
 		if result.RequeueAfter > 0 {
+			rateLimiter.Forget(req)
 			return reconcile.Result{RequeueAfter: result.RequeueAfter}, nil
 		}
 		if result.Requeue {

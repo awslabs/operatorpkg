@@ -257,4 +257,30 @@ var _ = Describe("Reconciler", func() {
 			Expect(result.RequeueAfter).To(BeZero())
 		}
 	})
+	It("should return a result with RequeueAfter that is scoped to a controller", func() {
+		// Test with different controllers to ensure they're handled independently
+		controller1 := &MockReconciler{
+			result: reconciler.Result{Requeue: true},
+		}
+		controller2 := &MockReconciler{
+			result: reconciler.Result{Requeue: true},
+		}
+
+		reconciler1 := reconciler.AsReconciler(controller1)
+		reconciler2 := reconciler.AsReconciler(controller2)
+
+		// Each controller should get its own rate limiting
+		result1, err1 := reconciler1.Reconcile(context.Background(), reconcile.Request{})
+		result2, err2 := reconciler2.Reconcile(context.Background(), reconcile.Request{})
+
+		Expect(err1).NotTo(HaveOccurred())
+		Expect(err2).NotTo(HaveOccurred())
+		Expect(result1.RequeueAfter).To(BeNumerically(">=", 0))
+		Expect(result2.RequeueAfter).To(BeNumerically(">=", 0))
+		Expect(result1.RequeueAfter).To(Equal(result2.RequeueAfter))
+
+		result2, err2 = reconciler2.Reconcile(context.Background(), reconcile.Request{})
+		Expect(err2).NotTo(HaveOccurred())
+		Expect(result1.RequeueAfter).NotTo(Equal(result2.RequeueAfter))
+	})
 })
