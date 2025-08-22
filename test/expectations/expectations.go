@@ -133,14 +133,17 @@ func ExpectDeletionTimestampSet(ctx context.Context, c client.Client, objects ..
 	GinkgoHelper()
 	for _, object := range objects {
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
-		controllerutil.AddFinalizer(object, "testing/finalizer")
-		Expect(c.Update(ctx, object)).To(Succeed())
-		Expect(c.Delete(ctx, object)).To(Succeed())
-		DeferCleanup(func(obj client.Object) {
-			mergeFrom := client.MergeFrom(obj.DeepCopyObject().(client.Object))
-			obj.SetFinalizers([]string{})
-			Expect(client.IgnoreNotFound(c.Patch(ctx, obj, mergeFrom))).To(Succeed())
-		}, object)
+		if object.GetDeletionTimestamp().IsZero() {
+			// finalizers cannot be added to already deleting objects, so this will fail
+			controllerutil.AddFinalizer(object, "testing/finalizer")
+			Expect(c.Update(ctx, object)).To(Succeed())
+			Expect(c.Delete(ctx, object)).To(Succeed())
+			DeferCleanup(func(obj client.Object) {
+				mergeFrom := client.MergeFrom(obj.DeepCopyObject().(client.Object))
+				obj.SetFinalizers([]string{})
+				Expect(client.IgnoreNotFound(c.Patch(ctx, obj, mergeFrom))).To(Succeed())
+			}, object)
+		}
 	}
 }
 
