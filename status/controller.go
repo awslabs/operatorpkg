@@ -41,6 +41,7 @@ type Controller[T Object] struct {
 	observedFinalizers            sync.Map // map[reconcile.Request]Finalizer
 	terminatingObjects            sync.Map // map[reconcile.Request]Object
 	emitDeprecatedMetrics         bool
+	maxConcurrentReconciles       int
 	ConditionDuration             pmetrics.ObservationMetric
 	ConditionCount                pmetrics.GaugeMetric
 	ConditionCurrentStatusSeconds pmetrics.GaugeMetric
@@ -57,12 +58,13 @@ type Option struct {
 	// - operator_status_condition_count
 	// - operator_termination_current_time_seconds
 	// - operator_termination_duration_seconds
-	EmitDeprecatedMetrics bool
-	MetricLabels          []string
-	GaugeMetricLabels     []string
-	MetricFields          map[string]string
-	GaugeMetricFields     map[string]string
-	HistogramBuckets      []float64
+	EmitDeprecatedMetrics   bool
+	MetricLabels            []string
+	GaugeMetricLabels       []string
+	MetricFields            map[string]string
+	GaugeMetricFields       map[string]string
+	HistogramBuckets        []float64
+	MaxConcurrentReconciles int
 }
 
 func EmitDeprecatedMetrics(o *Option) {
@@ -99,6 +101,12 @@ func WithHistogramBuckets(buckets []float64) func(*Option) {
 	}
 }
 
+func WitMaxConcurrentReconciles(m int) func(*Option) {
+	return func(o *Option) {
+		o.MaxConcurrentReconciles = m
+	}
+}
+
 func NewController[T Object](client client.Client, eventRecorder record.EventRecorder, opts ...option.Function[Option]) *Controller[T] {
 	options := option.Resolve(opts...)
 	obj := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(runtime.Object)
@@ -114,6 +122,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 		kubeClient:                  client,
 		eventRecorder:               eventRecorder,
 		emitDeprecatedMetrics:       options.EmitDeprecatedMetrics,
+		maxConcurrentReconciles:     lo.Ternary(options.MaxConcurrentReconciles <= 0, 10, options.MaxConcurrentReconciles),
 		ConditionDuration: conditionDurationMetric(strings.ToLower(gvk.Kind), options.HistogramBuckets, lo.Map(
 			append(options.MetricLabels, lo.Keys(options.MetricFields)...),
 			func(k string, _ int) string { return toPrometheusLabel(k) })...),
@@ -144,7 +153,7 @@ func NewController[T Object](client client.Client, eventRecorder record.EventRec
 func (c *Controller[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		For(object.New[T]()).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: c.maxConcurrentReconciles}).
 		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(c.gvk.Kind))).
 		Complete(c)
 }
@@ -166,7 +175,7 @@ func NewGenericObjectController[T client.Object](client client.Client, eventReco
 func (c *GenericObjectController[T]) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		For(object.New[T]()).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: c.maxConcurrentReconciles}).
 		Named(fmt.Sprintf("operatorpkg.%s.status", strings.ToLower(reflect.TypeOf(object.New[T]()).Elem().Name()))).
 		Complete(c)
 }
