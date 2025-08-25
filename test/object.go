@@ -47,6 +47,7 @@ func RandomName() string {
 
 // +k8s:deepcopy-gen=true
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 type CustomObject struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

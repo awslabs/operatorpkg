@@ -46,7 +46,7 @@ var _ = Describe("Controller", func() {
 	var kubeClient client.Client
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
-		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&test.CustomObject{}).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
@@ -160,7 +160,7 @@ var _ = Describe("Controller", func() {
 		// Transition Foo
 		time.Sleep(time.Second * 1)
 		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionTrue})
 
@@ -253,7 +253,7 @@ var _ = Describe("Controller", func() {
 
 		// Transition Bar, root condition should also flip
 		testObject.StatusConditions().SetTrueWithReason(test.ConditionTypeBar, "reason", "message")
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeBar, Status: metav1.ConditionTrue, Reason: "reason", Message: "message"})
 
@@ -451,7 +451,7 @@ var _ = Describe("Controller", func() {
 		// set the bar condition and transition it to true
 		testObject.StatusConditions().SetTrue(ConditionTypeBar)
 
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeBar, Status: metav1.ConditionTrue, Reason: test.ConditionTypeBar, Message: ""})
 
@@ -466,7 +466,7 @@ var _ = Describe("Controller", func() {
 		// set the bar condition and transition it to false
 		testObject.StatusConditions().SetFalse(test.ConditionTypeBar, "reason", "message")
 
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeBar, Status: metav1.ConditionFalse, Reason: "reason", Message: "message"})
 
@@ -545,10 +545,12 @@ var _ = Describe("Controller", func() {
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
-		// Then the status conditions gets initialized and a condition is set to True
-		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
 		testObject.SetCreationTimestamp(metav1.Time{Time: time.Now().Add(time.Hour)})
 		ExpectApplied(ctx, kubeClient, testObject)
+
+		// Then the status conditions gets initialized and a condition is set to True
+		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
@@ -601,7 +603,7 @@ var _ = Describe("Controller", func() {
 
 		// Set Foo to Unknown but with a custom reason (we should change the reason but not leak metrics)
 		testObject.StatusConditions().SetUnknownWithReason(test.ConditionTypeFoo, "CustomReason", "custom message")
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionUnknown})
 
@@ -670,7 +672,7 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		testObject.StatusConditions().SetTrueWithReason(test.ConditionTypeFoo, "reason", "message")
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(0))
 		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
@@ -699,7 +701,7 @@ var _ = Describe("Controller", func() {
 		// Transition Foo
 		time.Sleep(time.Second * 1)
 		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionTrue})
 
@@ -770,10 +772,10 @@ var _ = Describe("Controller", func() {
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithHistogramBuckets(customBuckets))
 
 		testObject := test.Object(&test.CustomObject{})
-		testObject.StatusConditions() // initialize conditions
-
-		// Apply object and reconcile to set initial state
 		ExpectApplied(ctx, kubeClient, testObject)
+
+		testObject.StatusConditions() // initialize conditions
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
 		// Wait a bit to ensure some time passes for duration measurement
@@ -781,7 +783,7 @@ var _ = Describe("Controller", func() {
 
 		// Transition a condition to trigger histogram observation
 		testObject.StatusConditions().SetTrue(test.ConditionTypeFoo)
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
 
 		// Verify that the histogram metric exists and has data
@@ -808,7 +810,7 @@ var _ = Describe("Generic Controller", func() {
 	var genericController *status.GenericObjectController[*TestGenericObject]
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
-		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&TestGenericObject{}).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		genericController = status.NewGenericObjectController[*TestGenericObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
@@ -859,6 +861,8 @@ var _ = Describe("Generic Controller", func() {
 	})
 	It("should emit metrics and events on a transition", func() {
 		testObject := test.Object(&TestGenericObject{})
+		ExpectApplied(ctx, kubeClient, testObject)
+
 		gvk := object.GVK(testObject)
 		testObject.Status = TestGenericStatus{
 			Conditions: []metav1.Condition{
@@ -874,7 +878,7 @@ var _ = Describe("Generic Controller", func() {
 		}
 
 		// conditions not set
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
@@ -930,7 +934,7 @@ var _ = Describe("Generic Controller", func() {
 				},
 			},
 		}
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
@@ -1009,7 +1013,7 @@ var _ = Describe("Generic Controller", func() {
 				},
 			},
 		}
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
@@ -1138,6 +1142,7 @@ var _ = Describe("Generic Controller", func() {
 	})
 	It("should emit transition total metrics for abnormal conditions", func() {
 		testObject := test.Object(&TestGenericObject{})
+		ExpectApplied(ctx, kubeClient, testObject)
 		gvk := object.GVK(testObject)
 		testObject.Status = TestGenericStatus{
 			Conditions: []metav1.Condition{
@@ -1153,7 +1158,7 @@ var _ = Describe("Generic Controller", func() {
 		}
 
 		// conditions not set
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// set the baz condition and transition it to true
@@ -1169,8 +1174,7 @@ var _ = Describe("Generic Controller", func() {
 				},
 			},
 		}
-
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
@@ -1198,7 +1202,7 @@ var _ = Describe("Generic Controller", func() {
 			},
 		}
 
-		ExpectApplied(ctx, kubeClient, testObject)
+		ExpectStatusUpdated(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
 		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
@@ -1235,6 +1239,7 @@ var _ = Describe("Generic Controller", func() {
 		var objs []*TestGenericObject
 		for range 100 {
 			testObject := test.Object(&TestGenericObject{})
+			ExpectApplied(ctx, kubeClient, testObject)
 			testObject.Status = TestGenericStatus{
 				Conditions: []metav1.Condition{
 					{
@@ -1248,7 +1253,7 @@ var _ = Describe("Generic Controller", func() {
 				},
 			}
 			// conditions not set
-			ExpectApplied(ctx, kubeClient, testObject)
+			ExpectStatusUpdated(ctx, kubeClient, testObject)
 			objs = append(objs, testObject)
 		}
 

@@ -28,6 +28,7 @@ var (
 
 // +k8s:deepcopy-gen=true
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 type TestGenericObject struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
