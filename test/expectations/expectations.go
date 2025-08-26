@@ -3,9 +3,11 @@ package test
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -100,22 +102,28 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	for _, object := range objects {
 		deletionTimestampSet := !object.GetDeletionTimestamp().IsZero()
 		current := object.DeepCopyObject().(client.Object)
-		statuscopy := object.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
+		statusCopy := object.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
 
-		// Create or Update
-		if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
-			if errors.IsNotFound(err) {
-				Expect(c.Create(ctx, object)).To(Succeed())
-			} else {
-				Expect(err).ToNot(HaveOccurred())
+		// Make these Eventually statements so ExpectApplied can be used with caches
+		Eventually(func(g Gomega) {
+			if err := c.Get(ctx, client.ObjectKeyFromObject(current), current); err != nil {
+				if errors.IsNotFound(err) {
+					g.Expect(c.Create(ctx, object)).To(Succeed())
+					return
+				}
+				g.Expect(err).NotTo(HaveOccurred())
+				return
 			}
-		} else {
 			object.SetResourceVersion(current.GetResourceVersion())
-			Expect(c.Update(ctx, object)).To(Succeed())
-		}
-		// Update status
-		statuscopy.SetResourceVersion(object.GetResourceVersion())
-		Expect(c.Status().Update(ctx, statuscopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("not found"), ContainSubstring("the server could not find the requested resource"))))) // Some objects do not have a status
+			g.Expect(c.Update(ctx, object)).To(Succeed())
+		}, "2s", "400ms").Should(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(current), current)).To(Succeed())
+			if isStatusSet(statusCopy) && !isStatusEqual(current, statusCopy) {
+				statusCopy.SetResourceVersion(current.GetResourceVersion())
+				g.Expect(c.Status().Update(ctx, statusCopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("not found"), ContainSubstring("the server could not find the requested resource")))))
+			}
+		}, "2s", "400ms").Should(Succeed())
 
 		// Re-get the object to grab the updated spec and status
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
@@ -127,14 +135,35 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
+func getStatus(obj client.Object) interface{} {
+	// Get the underlying value
+	v := reflect.ValueOf(obj)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	statusField := v.FieldByName("Status")
+	if !statusField.IsValid() {
+		return nil
+	}
+	return statusField.Interface()
+}
+
+func isStatusSet(obj client.Object) bool {
+	s := getStatus(obj)
+	return s != nil && !reflect.ValueOf(s).IsZero()
+}
+
+func isStatusEqual(objA, objB client.Object) bool {
+	return equality.Semantic.DeepEqual(getStatus(objA), getStatus(objB))
+}
+
 // ExpectDeletionTimestampSet ensures that the deletion timestamp is set on the objects by adding a finalizer
 // and then deleting the object immediately after. This will hold the object until the finalizer is patched out
 func ExpectDeletionTimestampSet(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, object := range objects {
 		Expect(c.Get(ctx, client.ObjectKeyFromObject(object), object)).To(Succeed())
-		if object.GetDeletionTimestamp().IsZero() {
-			// finalizers cannot be added to already deleting objects, so this will fail
+		if object.GetDeletionTimestamp().IsZero() { // finalizers cannot be added to already deleting objects, so this will fail
 			controllerutil.AddFinalizer(object, "testing/finalizer")
 			Expect(c.Update(ctx, object)).To(Succeed())
 			Expect(c.Delete(ctx, object)).To(Succeed())
