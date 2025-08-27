@@ -46,7 +46,7 @@ var _ = Describe("Controller", func() {
 	var kubeClient client.Client
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
-		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&test.CustomObject{}).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
 	})
