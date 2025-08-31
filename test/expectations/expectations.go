@@ -119,7 +119,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 		}, "2s", "400ms").Should(Succeed())
 		Eventually(func(g Gomega) {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(current), current)).To(Succeed())
-			if isStatusSet(statusCopy) && !isStatusEqual(current, statusCopy) {
+			if !isStatusEqual(current, statusCopy) {
 				statusCopy.SetResourceVersion(current.GetResourceVersion())
 				g.Expect(c.Status().Update(ctx, statusCopy)).To(Or(Succeed(), MatchError(Or(ContainSubstring("not found"), ContainSubstring("the server could not find the requested resource")))))
 			}
