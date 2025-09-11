@@ -195,4 +195,50 @@ var _ = Describe("Conditions", func() {
 		Expect(conditions.Root().Status).To(Equal(metav1.ConditionTrue))
 		Expect(conditions.Root().ObservedGeneration).To(Equal(int64(2)))
 	})
+	It("should respect custom transition time when setting conditions", func() {
+		testObject := test.Object(&test.CustomObject{})
+		conditions := testObject.StatusConditions()
+		// Set a custom transition time
+		customTime := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
+
+		// Set condition to true
+		Expect(conditions.SetTrue(test.ConditionTypeFoo)).To(BeTrue())
+		Expect(conditions.Get(test.ConditionTypeFoo).LastTransitionTime.Time).To(BeTemporally(">", customTime))
+
+		// Set condition with custom transition time
+		Expect(conditions.SetTrue(test.ConditionTypeFoo, status.WithTransitionTime(customTime))).To(BeTrue())
+
+		// Verify the condition has the custom transition time
+		fooCondition := conditions.Get(test.ConditionTypeFoo)
+		Expect(fooCondition).NotTo(BeNil())
+		Expect(fooCondition.LastTransitionTime.Time).To(Equal(customTime))
+
+		// Update the condition with the same status but different reason
+		// Without specifying transition time, it should keep the same time since status didn't change
+		Expect(conditions.SetTrueWithReason(test.ConditionTypeFoo, "NewReason", "New message")).To(BeTrue())
+
+		// Verify the transition time was not updated (status didn't change)
+		updatedFooCondition := conditions.Get(test.ConditionTypeFoo)
+		Expect(updatedFooCondition.LastTransitionTime.Time).To(Equal(customTime))
+
+		// Update the condition with a different status and custom time
+		newCustomTime := time.Date(2023, 2, 1, 12, 0, 0, 0, time.UTC)
+		Expect(conditions.SetFalse(test.ConditionTypeFoo, "AnotherReason", "Another message",
+			status.WithTransitionTime(newCustomTime))).To(BeTrue())
+
+		// Verify the condition has the new custom transition time
+		finalFooCondition := conditions.Get(test.ConditionTypeFoo)
+		Expect(finalFooCondition.LastTransitionTime.Time).To(Equal(newCustomTime))
+
+		// Update the condition with a different status without custom time
+		// Should use current time since status is changing
+		beforeUpdate := metav1.Now()
+		Expect(conditions.SetUnknown(test.ConditionTypeFoo)).To(BeTrue())
+		afterUpdate := metav1.Now()
+
+		// Verify the transition time was updated to current time
+		unknownFooCondition := conditions.Get(test.ConditionTypeFoo)
+		Expect(unknownFooCondition.LastTransitionTime.Time).To(BeTemporally(">=", beforeUpdate.Time))
+		Expect(unknownFooCondition.LastTransitionTime.Time).To(BeTemporally("<=", afterUpdate.Time))
+	})
 })

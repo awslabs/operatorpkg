@@ -7,10 +7,26 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// SetOption is a function that configures options for Set
+type SetOption func(*setOptions)
+
+// setOptions holds all possible options for the Set function
+type setOptions struct {
+	transitionTime *time.Time
+}
+
+// WithTransitionTime returns an option that sets a specific transition time
+func WithTransitionTime(t time.Time) SetOption {
+	return func(o *setOptions) {
+		o.transitionTime = &t
+	}
+}
 
 // ConditionTypes is an abstract collection of the possible ConditionType values
 // that a particular resource might expose.  It also holds the "root condition"
@@ -106,7 +122,13 @@ func (c ConditionSet) IsDependentCondition(t string) bool {
 
 // Set sets or updates the Condition on Conditions for Condition.Type.
 // If there is an update, Conditions are stored back sorted.
-func (c ConditionSet) Set(condition Condition) (modified bool) {
+func (c ConditionSet) Set(condition Condition, opts ...SetOption) (modified bool) {
+	// Process options
+	options := &setOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	var conditions []Condition
 	var foundCondition bool
 
@@ -120,7 +142,9 @@ func (c ConditionSet) Set(condition Condition) (modified bool) {
 			conditions = append(conditions, cond)
 		} else {
 			foundCondition = true
-			if condition.Status == cond.Status {
+			if options.transitionTime != nil {
+				condition.LastTransitionTime = metav1.NewTime(lo.FromPtr(options.transitionTime))
+			} else if condition.Status == cond.Status {
 				condition.LastTransitionTime = cond.LastTransitionTime
 			} else {
 				condition.LastTransitionTime = metav1.Now()
@@ -186,46 +210,46 @@ func (c ConditionSet) Clear(t string) error {
 
 // SetTrue sets the status of conditionType to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
-func (c ConditionSet) SetTrue(conditionType string) (modified bool) {
-	return c.SetTrueWithReason(conditionType, conditionType, "")
+func (c ConditionSet) SetTrue(conditionType string, opts ...SetOption) (modified bool) {
+	return c.SetTrueWithReason(conditionType, conditionType, "", opts...)
 }
 
 // SetTrueWithReason sets the status of conditionType to true with the reason, and then marks the root condition to
 // true if all other dependents are also true.
-func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message string) (modified bool) {
+func (c ConditionSet) SetTrueWithReason(conditionType string, reason, message string, opts ...SetOption) (modified bool) {
 	return c.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionTrue,
 		Reason:  reason,
 		Message: message,
-	})
+	}, opts...)
 }
 
 // SetUnknown sets the status of conditionType to Unknown and also sets the root condition
 // to Unknown if no other dependent condition is in an error state.
-func (c ConditionSet) SetUnknown(conditionType string) (modified bool) {
-	return c.SetUnknownWithReason(conditionType, "AwaitingReconciliation", "object is awaiting reconciliation")
+func (c ConditionSet) SetUnknown(conditionType string, opts ...SetOption) (modified bool) {
+	return c.SetUnknownWithReason(conditionType, "AwaitingReconciliation", "object is awaiting reconciliation", opts...)
 }
 
 // SetUnknownWithReason sets the status of conditionType to Unknown with the reason, and also sets the root condition
 // to Unknown if no other dependent condition is in an error state.
-func (c ConditionSet) SetUnknownWithReason(conditionType string, reason, message string) (modified bool) {
+func (c ConditionSet) SetUnknownWithReason(conditionType string, reason, message string, opts ...SetOption) (modified bool) {
 	return c.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionUnknown,
 		Reason:  reason,
 		Message: message,
-	})
+	}, opts...)
 }
 
 // SetFalse sets the status of conditionType and the root condition to False.
-func (c ConditionSet) SetFalse(conditionType string, reason, message string) (modified bool) {
+func (c ConditionSet) SetFalse(conditionType string, reason, message string, opts ...SetOption) (modified bool) {
 	return c.Set(Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
-	})
+	}, opts...)
 }
 
 // recomputeRootCondition marks the root condition to true if all other dependents are also true.
