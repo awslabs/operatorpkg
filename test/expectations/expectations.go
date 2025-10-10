@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -22,6 +23,7 @@ import (
 	prometheus "github.com/prometheus/client_model/go"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -100,6 +102,14 @@ func ExpectNotFound(ctx context.Context, c client.Client, objects ...client.Obje
 func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Object) {
 	GinkgoHelper()
 	for _, object := range objects {
+		// If the object is a pod, ensure the default service account exists to avoid flaky tests
+		// https://github.com/kubernetes/kubernetes/issues/66689
+		if pod, ok := object.(*v1.Pod); ok {
+			Eventually(func(g Gomega) {
+				g.Expect(c.Get(ctx, apitypes.NamespacedName{Namespace: pod.Namespace, Name: "default"}, &v1.ServiceAccount{})).Error().NotTo(HaveOccurred())
+			}).WithTimeout(2 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+		}
+
 		deletionTimestampSet := !object.GetDeletionTimestamp().IsZero()
 		current := object.DeepCopyObject().(client.Object)
 		statusCopy := object.DeepCopyObject().(client.Object) // Snapshot the status, since create/update may override
