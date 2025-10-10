@@ -107,7 +107,7 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 		if pod, ok := object.(*v1.Pod); ok {
 			Eventually(func(g Gomega) {
 				g.Expect(c.Get(ctx, apitypes.NamespacedName{Namespace: pod.Namespace, Name: "default"}, &v1.ServiceAccount{})).Error().NotTo(HaveOccurred())
-			}).WithTimeout(2 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+			}).WithTimeout(1 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 		}
 
 		deletionTimestampSet := !object.GetDeletionTimestamp().IsZero()
