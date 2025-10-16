@@ -143,7 +143,7 @@ func ExpectNamespaceApplied(ctx context.Context, c client.Client, pod v1.Pod) {
 	GinkgoHelper()
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, apitypes.NamespacedName{Namespace: pod.Namespace, Name: "default"}, &v1.ServiceAccount{})).Error().NotTo(HaveOccurred())
-	}).WithTimeout(1 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+	}).WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
 }
 
