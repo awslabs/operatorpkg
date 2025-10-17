@@ -137,14 +137,13 @@ func ExpectApplied(ctx context.Context, c client.Client, objects ...client.Objec
 	}
 }
 
-func ExpectNamespaceApplied(ctx context.Context, c client.Client, pod v1.Pod) {
+func ExpectServiceAccountForNamespaceCreated(ctx context.Context, c client.Client, pod v1.Pod) {
 	// Ensure the default service account for a pod exists to avoid flaky tests
 	// https://github.com/kubernetes/kubernetes/issues/66689
 	GinkgoHelper()
 	Eventually(func(g Gomega) {
 		g.Expect(c.Get(ctx, apitypes.NamespacedName{Namespace: pod.Namespace, Name: "default"}, &v1.ServiceAccount{})).Error().NotTo(HaveOccurred())
 	}).WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
-
 }
 
 func getStatus(obj client.Object) interface{} {
