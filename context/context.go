@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"os"
 	"reflect"
 
 	"github.com/go-logr/zapr"
@@ -16,7 +17,13 @@ type Context = context.Context
 
 func New() context.Context {
 	ctx := controllerruntime.SetupSignalHandler()
-	logger := zapr.NewLogger(lo.Must(zap.NewDevelopment()))
+	var config *zap.Logger
+	if os.Getenv("STAGE") == "dev" {
+		config = lo.Must(zap.NewDevelopment())
+	} else {
+		config = lo.Must(zap.NewProduction())
+	}
+	logger := zapr.NewLogger(config)
 	klog.SetLogger(logger)
 	log.SetLogger(logger)
 	ctx = Into(ctx, &logger)
