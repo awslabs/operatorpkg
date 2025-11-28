@@ -18,7 +18,7 @@ type Context = context.Context
 func New() context.Context {
 	ctx := controllerruntime.SetupSignalHandler()
 	var config *zap.Logger
-	if os.Getenv("STAGE") == "dev" {
+	if lo.Contains([]string{"dev", "test"}, os.Getenv("STAGE")) {
 		config = lo.Must(zap.NewDevelopment())
 	} else {
 		config = lo.Must(zap.NewProduction())
