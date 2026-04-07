@@ -10,6 +10,7 @@ import (
 	"github.com/samber/lo"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clocktesting "k8s.io/utils/clock/testing"
 )
 
 var _ = Describe("Conditions", func() {
@@ -194,5 +195,29 @@ var _ = Describe("Conditions", func() {
 		Expect(conditions.Get(test.ConditionTypeBar).ObservedGeneration).To(Equal(int64(2)))
 		Expect(conditions.Root().Status).To(Equal(metav1.ConditionTrue))
 		Expect(conditions.Root().ObservedGeneration).To(Equal(int64(2)))
+	})
+	It("should use injected clock for LastTransitionTime", func() {
+		baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		fakeClock := clocktesting.NewFakeClock(baseTime)
+		testObject := test.Object(&test.CustomObject{})
+		conditions := status.NewReadyConditions(test.ConditionTypeFoo, test.ConditionTypeBar).For(testObject, status.WithClock(fakeClock))
+
+		// Set an independent condition; its LastTransitionTime should use the fake clock
+		conditions.SetUnknownWithReason("MyCondition", "reason", "message")
+		cond := conditions.Get("MyCondition")
+		Expect(cond).ToNot(BeNil())
+		Expect(cond.LastTransitionTime.Time).To(Equal(baseTime))
+
+		// Advance the fake clock and transition the condition
+		fakeClock.Step(10 * time.Second)
+		conditions.SetTrue("MyCondition")
+		cond = conditions.Get("MyCondition")
+		Expect(cond.LastTransitionTime.Time).To(Equal(baseTime.Add(10 * time.Second)))
+
+		// Setting the same status again should preserve the LastTransitionTime
+		fakeClock.Step(5 * time.Second)
+		conditions.SetTrueWithReason("MyCondition", "reason2", "message2")
+		cond = conditions.Get("MyCondition")
+		Expect(cond.LastTransitionTime.Time).To(Equal(baseTime.Add(10 * time.Second)))
 	})
 })
