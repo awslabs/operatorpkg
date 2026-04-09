@@ -18,7 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -26,7 +26,7 @@ import (
 )
 
 var ctx context.Context
-var recorder *record.FakeRecorder
+var recorder *events.FakeRecorder
 var kubeClient client.Client
 var registry = metrics.Registry
 
@@ -41,11 +41,11 @@ var _ = AfterEach(func() {
 
 var _ = Describe("Controller", func() {
 	var ctx context.Context
-	var recorder *record.FakeRecorder
+	var recorder *events.FakeRecorder
 	var controller *status.Controller[*test.CustomObject]
 	var kubeClient client.Client
 	BeforeEach(func() {
-		recorder = record.NewFakeRecorder(10)
+		recorder = events.NewFakeRecorder(10)
 		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&test.CustomObject{}).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
@@ -807,7 +807,7 @@ var _ = Describe("Controller", func() {
 var _ = Describe("Generic Controller", func() {
 	var genericController *status.GenericObjectController[*TestGenericObject]
 	BeforeEach(func() {
-		recorder = record.NewFakeRecorder(10)
+		recorder = events.NewFakeRecorder(10)
 		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		genericController = status.NewGenericObjectController[*TestGenericObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
