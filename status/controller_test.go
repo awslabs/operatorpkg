@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
@@ -29,6 +30,29 @@ var ctx context.Context
 var recorder *record.FakeRecorder
 var kubeClient client.Client
 var registry = metrics.Registry
+
+// spyClient wraps a client.Client and counts how many Get calls are made with
+// a runtime.Unstructured object, which would bypass the controller-runtime cache.
+type spyClient struct {
+	client.Client
+	mu               sync.Mutex
+	unstructuredGets int
+}
+
+func (spy *spyClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(runtime.Unstructured); ok {
+		spy.mu.Lock()
+		spy.unstructuredGets++
+		spy.mu.Unlock()
+	}
+	return spy.Client.Get(ctx, key, obj, opts...)
+}
+
+func (spy *spyClient) reset() {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.unstructuredGets = 0
+}
 
 var _ = AfterEach(func() {
 	status.ConditionDuration.Reset()
@@ -806,11 +830,13 @@ var _ = Describe("Controller", func() {
 
 var _ = Describe("Generic Controller", func() {
 	var genericController *status.GenericObjectController[*TestGenericObject]
+	var spy *spyClient
 	BeforeEach(func() {
 		recorder = record.NewFakeRecorder(10)
-		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		spy = &spyClient{Client: fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()}
+		kubeClient = spy
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
-		genericController = status.NewGenericObjectController[*TestGenericObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
+		genericController = status.NewGenericObjectController[*TestGenericObject](spy, recorder, status.EmitDeprecatedMetrics)
 	})
 	AfterEach(func() {
 		metrics.Registry = registry // reset the registry to handle cases where the registry is overridden
@@ -1291,6 +1317,23 @@ var _ = Describe("Generic Controller", func() {
 				ExpectReconciled(ctx, genericController, obj)
 			}()
 		}
+	})
+	It("should use typed Get to avoid bypassing the controller-runtime cache", func() {
+		// GenericObjectController must call kubeClient.Get with a typed T object, not an
+		// UnstructuredAdapter. UnstructuredAdapter implements runtime.Unstructured (via its
+		// embedded unstructured.Unstructured), which causes controller-runtime's cached client
+		// to bypass the cache and send direct HTTP GETs to the API server on every requeue.
+		testObject := test.Object(&TestGenericObject{
+			Status: TestGenericStatus{
+				Conditions: []metav1.Condition{
+					{Type: ConditionTypeFoo, Status: metav1.ConditionTrue, Reason: ConditionTypeFoo},
+				},
+			},
+		})
+		ExpectApplied(ctx, kubeClient, testObject)
+		spy.reset()
+		ExpectReconciled(ctx, genericController, testObject)
+		Expect(spy.unstructuredGets).To(Equal(0))
 	})
 })
 
