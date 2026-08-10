@@ -27,9 +27,36 @@ import (
 )
 
 var ctx context.Context
-var recorder *record.FakeRecorder
+var recorder *capturingRecorder
 var kubeClient client.Client
 var registry = metrics.Registry
+
+// capturingRecorder wraps a FakeRecorder but also captures the involved
+// object for each recorded event, keyed by reason. This lets tests assert on
+// the object identity (e.g. Name) that events were recorded against, which
+// FakeRecorder alone discards.
+type capturingRecorder struct {
+	*record.FakeRecorder
+	mu      sync.Mutex
+	objects map[string][]runtime.Object
+}
+
+func newCapturingRecorder() *capturingRecorder {
+	return &capturingRecorder{FakeRecorder: record.NewFakeRecorder(10), objects: map[string][]runtime.Object{}}
+}
+
+func (r *capturingRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+	r.mu.Lock()
+	r.objects[reason] = append(r.objects[reason], object)
+	r.mu.Unlock()
+	r.FakeRecorder.Event(object, eventtype, reason, message)
+}
+
+func (r *capturingRecorder) objectsFor(reason string) []runtime.Object {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.objects[reason]
+}
 
 // spyClient wraps a client.Client and counts how many Get calls are made with
 // a runtime.Unstructured object, which would bypass the controller-runtime cache.
@@ -65,11 +92,11 @@ var _ = AfterEach(func() {
 
 var _ = Describe("Controller", func() {
 	var ctx context.Context
-	var recorder *record.FakeRecorder
+	var recorder *capturingRecorder
 	var controller *status.Controller[*test.CustomObject]
 	var kubeClient client.Client
 	BeforeEach(func() {
-		recorder = record.NewFakeRecorder(10)
+		recorder = newCapturingRecorder()
 		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&test.CustomObject{}).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
 		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
@@ -110,6 +137,19 @@ var _ = Describe("Controller", func() {
 		testObject.SetFinalizers([]string{})
 		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
 		ExpectReconciled(ctx, controller, testObject)
+
+		// The object no longer exists by the time the finalizer removal is
+		// observed, so the event must still carry the object's identity
+		// rather than an empty involvedObject name.
+		finalizedEvents := recorder.objectsFor("Finalized")
+		Expect(finalizedEvents).ToNot(BeEmpty())
+		for _, obj := range finalizedEvents {
+			co, ok := obj.(client.Object)
+			Expect(ok).To(BeTrue())
+			Expect(co.GetName()).To(Equal(testObject.Name))
+			Expect(co.GetNamespace()).To(Equal(testObject.Namespace))
+		}
+
 		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
 		Expect(GetMetric("operator_customobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
 		metric = GetMetric("operator_termination_duration_seconds", map[string]string{})
@@ -832,7 +872,7 @@ var _ = Describe("Generic Controller", func() {
 	var genericController *status.GenericObjectController[*TestGenericObject]
 	var spy *spyClient
 	BeforeEach(func() {
-		recorder = record.NewFakeRecorder(10)
+		recorder = newCapturingRecorder()
 		spy = &spyClient{Client: fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()}
 		kubeClient = spy
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
@@ -874,6 +914,19 @@ var _ = Describe("Generic Controller", func() {
 		testObject.SetFinalizers([]string{})
 		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
 		ExpectReconciled(ctx, genericController, testObject)
+
+		// The object no longer exists by the time the finalizer removal is
+		// observed, so the event must still carry the object's identity
+		// rather than an empty involvedObject name.
+		finalizedEvents := recorder.objectsFor("Finalized")
+		Expect(finalizedEvents).ToNot(BeEmpty())
+		for _, obj := range finalizedEvents {
+			co, ok := obj.(client.Object)
+			Expect(ok).To(BeTrue())
+			Expect(co.GetName()).To(Equal(testObject.Name))
+			Expect(co.GetNamespace()).To(Equal(testObject.Namespace))
+		}
+
 		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
 		metric = GetMetric("operator_termination_duration_seconds", map[string]string{})
