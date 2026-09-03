@@ -24,6 +24,7 @@ func RegisterClientMetrics(r prometheus.Registerer) {
 			Buckets: prometheus.ExponentialBuckets(0.001, 1.5, 20),
 		},
 		[]Label{{Name: "verb"}, {Name: "group"}, {Name: "version"}, {Name: "kind"}, {Name: "subresource"}},
+		GA,
 	)}
 	clientmetrics.RequestResult = &ResultAdapter{Metric: NewPrometheusCounter(
 		r,
@@ -32,6 +33,7 @@ func RegisterClientMetrics(r prometheus.Registerer) {
 			Help: "Number of HTTP requests, partitioned by status code and method.",
 		},
 		[]Label{{Name: "code"}, {Name: "method"}},
+		GA,
 	)}
 }
 

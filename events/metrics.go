@@ -19,5 +19,6 @@ func eventTotalMetric(objectName string) pmetrics.CounterMetric {
 			pmetrics.Type,
 			pmetrics.Reason,
 		},
+		pmetrics.GA,
 	)
 }

@@ -15,6 +15,8 @@ type ObservationMetric interface {
 	Reset()
 	// Labels returns the dimensions the metric was declared with.
 	Labels() []Label
+	// Stage returns the metric's API stability.
+	Stage() Stage
 }
 
 type CounterMetric interface {
@@ -25,6 +27,8 @@ type CounterMetric interface {
 	Reset()
 	// Labels returns the dimensions the metric was declared with.
 	Labels() []Label
+	// Stage returns the metric's API stability.
+	Stage() Stage
 }
 
 type GaugeMetric interface {
@@ -34,4 +38,6 @@ type GaugeMetric interface {
 	Reset()
 	// Labels returns the dimensions the metric was declared with.
 	Labels() []Label
+	// Stage returns the metric's API stability.
+	Stage() Stage
 }

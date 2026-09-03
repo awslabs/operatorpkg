@@ -83,6 +83,7 @@ func conditionDurationMetric(objectName string, buckets []float64, additionalLab
 			ConditionStatus,
 			ToConditionStatus,
 		}, additionalLabels...),
+		pmetrics.GA,
 	)
 }
 
@@ -107,6 +108,7 @@ func conditionCountMetric(objectName string, additionalLabels ...pmetrics.Label)
 			ConditionStatus,
 			pmetrics.Reason,
 		}, additionalLabels...),
+		pmetrics.GA,
 	)
 }
 
@@ -133,6 +135,7 @@ func conditionCurrentStatusSecondsMetric(objectName string, additionalLabels ...
 			ConditionStatus,
 			pmetrics.Reason,
 		}, additionalLabels...),
+		pmetrics.GA,
 	)
 }
 
@@ -155,6 +158,7 @@ func conditionTransitionsTotalMetric(objectName string, additionalLabels ...pmet
 			ConditionStatus,
 			pmetrics.Reason,
 		}, additionalLabels...),
+		pmetrics.GA,
 	)
 
 }
@@ -176,6 +180,7 @@ func terminationCurrentTimeSecondsMetric(objectName string, additionalLabels ...
 			Namespace,
 			Name,
 		}, additionalLabels...),
+		pmetrics.GA,
 	)
 }
 
@@ -195,5 +200,6 @@ func terminationDurationMetric(objectName string, buckets []float64, additionalL
 			Buckets:   buckets,
 		},
 		additionalLabels,
+		pmetrics.GA,
 	)
 }
