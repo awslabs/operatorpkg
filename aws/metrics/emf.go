@@ -62,6 +62,10 @@ func (e *EMFCounter) Delete(_ map[string]string) {}
 
 func (e *EMFCounter) DeletePartialMatch(_ map[string]string) {}
 
+func (e *EMFCounter) Labels() []metrics.Label { return nil }
+
+func (e *EMFCounter) Stage() metrics.Stage { return metrics.GA }
+
 func (e *EMF) Reset() {}
 
 type EMFGauge struct {
@@ -83,6 +87,10 @@ func (e *EMFGauge) Delete(_ map[string]string) {}
 func (e *EMFGauge) DeletePartialMatch(_ map[string]string) {}
 
 func (e *EMFGauge) Reset() {}
+
+func (e *EMFGauge) Labels() []metrics.Label { return nil }
+
+func (e *EMFGauge) Stage() metrics.Stage { return metrics.GA }
 
 type EMFObservation struct {
 	*EMF
@@ -109,6 +117,10 @@ func (e *EMFObservation) DeletePartialMatch(_ map[string]string) {
 func (e *EMFObservation) Reset() {
 
 }
+
+func (e *EMFObservation) Labels() []metrics.Label { return nil }
+
+func (e *EMFObservation) Stage() metrics.Stage { return metrics.GA }
 
 // Copied from https://github.com/aws/aws-sdk-go-v2/blob/v1.32.0/aws/middleware/private/metrics/emf/emf.go#L23
 // We needed to make edits to this code since we need to be able to represent different sets of dimensions
