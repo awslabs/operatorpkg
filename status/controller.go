@@ -246,6 +246,13 @@ func (c *Controller[T]) reconcile(ctx context.Context, req reconcile.Request, o 
 }
 
 func (c *Controller[T]) cleanupNotFound(req reconcile.Request, o Object) error {
+	// o was never populated by a successful Get (the object is already gone),
+	// so it still carries the zero-value Name/Namespace from object.New[T]().
+	// Fill them in from req so any event recorded against o below has a valid
+	// involvedObject reference instead of an empty Name.
+	o.SetName(req.Name)
+	o.SetNamespace(req.Namespace)
+
 	c.observedConditions.Delete(req)
 	c.observedGaugeLabels.Delete(req)
 	c.deletePartialMatchGaugeMetric(c.ConditionCount, ConditionCount, map[string]string{
