@@ -1,20 +1,14 @@
 package metrics
 
-// Stage describes the API stability of a metric, mirroring the Kubernetes
-// metric stability levels. Declaring it lets a metrics documentation generator
-// surface which metrics are safe to depend on and which may still change.
-type Stage string
+import "github.com/awslabs/operatorpkg/docs"
+
+// Stage describes the API stability of a metric. Alpha metrics may change in any
+// way; Beta metrics may still rename or remove dimensions; GA metrics only add
+// dimensions, except through the usual deprecation process.
+type Stage = docs.Stage
 
 const (
-	// Alpha marks an experimental metric. Any aspect — its name, dimensions,
-	// values, or the metric itself — may change or be removed without notice.
-	Alpha Stage = "alpha"
-	// Beta marks a metric that is fairly stable but not yet guaranteed. Additive
-	// changes are expected, and breaking changes to its dimensions (renaming or
-	// removing a dimension) are still permitted before it is promoted to GA.
-	Beta Stage = "beta"
-	// GA marks a stable metric that is safe to depend on. Only additive changes
-	// are allowed: new dimensions may still be added, but existing dimensions are
-	// not renamed or removed except through the usual deprecation process.
-	GA Stage = "ga"
+	Alpha = docs.Alpha
+	Beta  = docs.Beta
+	GA    = docs.GA
 )
