@@ -58,8 +58,9 @@ type Label struct {
 	Values []docs.Value
 	// Stage is the stability of the label.
 	Stage docs.Stage
-	// InternalOnly labels are set by the operator itself and must never be set by
-	// users or other controllers. They may still be selected on, e.g. in a
-	// nodeSelector. They are not a user-facing API, so they are always docs.Alpha.
+	// InternalOnly labels are set by the operator itself and must never be set or
+	// selected on by users or other controllers. They are not a user-facing API, so
+	// they are always docs.Alpha. A label the operator sets but users select on,
+	// e.g. in a nodeSelector, is not InternalOnly.
 	InternalOnly bool
 }
