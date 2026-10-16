@@ -26,6 +26,13 @@ type Label struct {
 	// can take, each with its own documentation. Every value's Name MUST be
 	// sourced from a const, never a magic string.
 	Values []docs.Value
+	// Exhaustive, when true, declares that Values lists every value the dimension
+	// is ever emitted with. DeletePartialMatch then deletes by expanding an
+	// omitted Exhaustive dimension into each of its Values rather than scanning
+	// every series, so a series emitted with an unlisted value would never be
+	// deleted. Only set it when the value set is closed, e.g. a boolean.
+	// It is opt-in because nothing checks emitted values against Values.
+	Exhaustive bool
 }
 
 // Value documents one of the stable values a metric dimension (Label) can take.

@@ -1,8 +1,14 @@
 package metrics
 
 import (
+	"maps"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// maxExactDeletes caps how many full label sets DeletePartialMatch expands a partial
+// match into before it falls back to scanning every series.
+const maxExactDeletes = 8
 
 // labelNames returns the Prometheus label-name slice for a set of Labels.
 func labelNames(labels []Label) []string {
@@ -11,6 +17,38 @@ func labelNames(labels []Label) []string {
 		names[i] = l.Name
 	}
 	return names
+}
+
+// exactLabelSets expands a partial label set into every full label set it can match,
+// filling each omitted dimension with its Values. Deleting those by exact labels avoids
+// the scan over every series that the client's DeletePartialMatch performs. ok is false
+// when an omitted dimension isn't Exhaustive, partial names a dimension the metric
+// doesn't have, or the expansion exceeds maxExactDeletes.
+func exactLabelSets(labels []Label, partial map[string]string) (sets []map[string]string, ok bool) {
+	sets = []map[string]string{{}}
+	matched := 0
+	for _, l := range labels {
+		if v, has := partial[l.Name]; has {
+			matched++
+			for _, s := range sets {
+				s[l.Name] = v
+			}
+			continue
+		}
+		if !l.Exhaustive || len(l.Values) == 0 || len(sets)*len(l.Values) > maxExactDeletes {
+			return nil, false
+		}
+		expanded := make([]map[string]string, 0, len(sets)*len(l.Values))
+		for _, s := range sets {
+			for _, v := range l.Values {
+				e := maps.Clone(s)
+				e[l.Name] = v.Name
+				expanded = append(expanded, e)
+			}
+		}
+		sets = expanded
+	}
+	return sets, matched == len(partial)
 }
 
 type PrometheusCounter struct {
@@ -42,6 +80,12 @@ func (pc *PrometheusCounter) Delete(labels map[string]string) {
 }
 
 func (pc *PrometheusCounter) DeletePartialMatch(labels map[string]string) {
+	if sets, ok := exactLabelSets(pc.labels, labels); ok {
+		for _, s := range sets {
+			pc.CounterVec.Delete(s)
+		}
+		return
+	}
 	pc.CounterVec.DeletePartialMatch(labels)
 }
 
@@ -74,6 +118,12 @@ func (pg *PrometheusGauge) Delete(labels map[string]string) {
 }
 
 func (pg *PrometheusGauge) DeletePartialMatch(labels map[string]string) {
+	if sets, ok := exactLabelSets(pg.labels, labels); ok {
+		for _, s := range sets {
+			pg.GaugeVec.Delete(s)
+		}
+		return
+	}
 	pg.GaugeVec.DeletePartialMatch(labels)
 }
 
@@ -106,6 +156,12 @@ func (ph *PrometheusHistogram) Delete(labels map[string]string) {
 }
 
 func (ph *PrometheusHistogram) DeletePartialMatch(labels map[string]string) {
+	if sets, ok := exactLabelSets(ph.labels, labels); ok {
+		for _, s := range sets {
+			ph.HistogramVec.Delete(s)
+		}
+		return
+	}
 	ph.HistogramVec.DeletePartialMatch(labels)
 }
 
@@ -138,6 +194,12 @@ func (ps *PrometheusSummary) Delete(labels map[string]string) {
 }
 
 func (ps *PrometheusSummary) DeletePartialMatch(labels map[string]string) {
+	if sets, ok := exactLabelSets(ps.labels, labels); ok {
+		for _, s := range sets {
+			ps.SummaryVec.Delete(s)
+		}
+		return
+	}
 	ps.SummaryVec.DeletePartialMatch(labels)
 }
 
