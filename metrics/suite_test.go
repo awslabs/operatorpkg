@@ -100,31 +100,21 @@ var _ = Describe("DeletePartialMatch", func() {
 		Entry(nil, gauge, []metrics.Label{name, exhaustive}, []map[string]string{
 			{"name": "a", "exhaustive": "true"}, {"name": "a", "exhaustive": "false"},
 		}, map[string]string{"name": "a", "unknown": "x"}, 2),
-		// a value outside an Exhaustive dimension's Values is never deleted; that is the Exhaustive contract
-		Entry(nil, gauge, []metrics.Label{name, exhaustive}, []map[string]string{
-			{"name": "a", "exhaustive": "true"}, {"name": "a", "exhaustive": "unlisted"},
-		}, map[string]string{"name": "a"}, 1),
 	)
-	It("should fall back to scanning when the expansion exceeds the cap", func() {
-		values := make([]metrics.Value, 9)
-		for i := range values {
-			values[i] = metrics.Value{Name: fmt.Sprint(i)}
-		}
-		wide := metrics.Label{Name: "wide", Values: values[:8], Exhaustive: true}
-		m, emit, collector := gauge(prometheus.NewRegistry(), []metrics.Label{name, wide})
-		emit(map[string]string{"name": "a", "wide": "0"})
-		// unlisted, so only the scan can find it
-		emit(map[string]string{"name": "a", "wide": "8"})
-		// 8 values fits the cap, so the unlisted series is left behind
-		m.DeletePartialMatch(map[string]string{"name": "a"})
-		Expect(testutil.CollectAndCount(collector)).To(Equal(1))
-
-		wide.Values = values
-		m, emit, collector = gauge(prometheus.NewRegistry(), []metrics.Label{name, wide, exhaustive})
-		emit(map[string]string{"name": "a", "wide": "0", "exhaustive": "unlisted"})
-		// 9*2 exceeds the cap, so the scan deletes it despite the unlisted value
-		m.DeletePartialMatch(map[string]string{"name": "a"})
-		Expect(testutil.CollectAndCount(collector)).To(Equal(0))
+	DescribeTable("should panic when an Exhaustive dimension is emitted with an unlisted value",
+		func(newMetric constructor) {
+			_, emit, _ := newMetric(prometheus.NewRegistry(), []metrics.Label{name, exhaustive, documented})
+			Expect(func() { emit(map[string]string{"name": "a", "exhaustive": "true", "documented": "unlisted"}) }).ToNot(Panic())
+			Expect(func() { emit(map[string]string{"name": "a", "exhaustive": "unlisted", "documented": "true"}) }).To(Panic())
+		},
+		Entry("gauge", gauge),
+		Entry("counter", counter),
+		Entry("histogram", histogram),
+		Entry("summary", summary),
+	)
+	It("should panic when a counter is added to with an unlisted value", func() {
+		c := metrics.NewPrometheusCounter(prometheus.NewRegistry(), prometheus.CounterOpts{Name: "test_counter", Help: "test"}, []metrics.Label{name, exhaustive}, metrics.Alpha)
+		Expect(func() { c.Add(1, map[string]string{"name": "a", "exhaustive": "unlisted"}) }).To(Panic())
 	})
 })
 

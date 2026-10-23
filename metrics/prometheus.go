@@ -1,14 +1,12 @@
 package metrics
 
 import (
+	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
-
-// maxExactDeletes caps how many full label sets DeletePartialMatch expands a partial
-// match into before it falls back to scanning every series.
-const maxExactDeletes = 8
 
 // labelNames returns the Prometheus label-name slice for a set of Labels.
 func labelNames(labels []Label) []string {
@@ -19,11 +17,26 @@ func labelNames(labels []Label) []string {
 	return names
 }
 
+// mustBeExhaustive panics if values gives an Exhaustive dimension a value outside its
+// Values, as the client panics on inconsistent label names. DeletePartialMatch only
+// deletes listed values for an omitted Exhaustive dimension, so an unlisted value
+// would leave a series that is never deleted.
+func mustBeExhaustive(labels []Label, values map[string]string) {
+	for _, l := range labels {
+		if !l.Exhaustive {
+			continue
+		}
+		if v, ok := values[l.Name]; ok && !slices.ContainsFunc(l.Values, func(lv Value) bool { return lv.Name == v }) {
+			panic(fmt.Sprintf("label %q is Exhaustive but value %q is not in its Values", l.Name, v))
+		}
+	}
+}
+
 // exactLabelSets expands a partial label set into every full label set it can match,
 // filling each omitted dimension with its Values. Deleting those by exact labels avoids
 // the scan over every series that the client's DeletePartialMatch performs. ok is false
-// when an omitted dimension isn't Exhaustive, partial names a dimension the metric
-// doesn't have, or the expansion exceeds maxExactDeletes.
+// when an omitted dimension isn't Exhaustive or partial names a dimension the metric
+// doesn't have.
 func exactLabelSets(labels []Label, partial map[string]string) (sets []map[string]string, ok bool) {
 	sets = []map[string]string{{}}
 	matched := 0
@@ -35,7 +48,7 @@ func exactLabelSets(labels []Label, partial map[string]string) (sets []map[strin
 			}
 			continue
 		}
-		if !l.Exhaustive || len(l.Values) == 0 || len(sets)*len(l.Values) > maxExactDeletes {
+		if !l.Exhaustive {
 			return nil, false
 		}
 		expanded := make([]map[string]string, 0, len(sets)*len(l.Values))
@@ -68,10 +81,12 @@ func (pc *PrometheusCounter) Labels() []Label { return pc.labels }
 func (pc *PrometheusCounter) Stage() Stage { return pc.stage }
 
 func (pc *PrometheusCounter) Inc(labels map[string]string) {
+	mustBeExhaustive(pc.labels, labels)
 	pc.CounterVec.With(labels).Inc()
 }
 
 func (pc *PrometheusCounter) Add(v float64, labels map[string]string) {
+	mustBeExhaustive(pc.labels, labels)
 	pc.CounterVec.With(labels).Add(v)
 }
 
@@ -110,6 +125,7 @@ func (pg *PrometheusGauge) Labels() []Label { return pg.labels }
 func (pg *PrometheusGauge) Stage() Stage { return pg.stage }
 
 func (pg *PrometheusGauge) Set(v float64, labels map[string]string) {
+	mustBeExhaustive(pg.labels, labels)
 	pg.GaugeVec.With(labels).Set(v)
 }
 
@@ -148,6 +164,7 @@ func (ph *PrometheusHistogram) Labels() []Label { return ph.labels }
 func (ph *PrometheusHistogram) Stage() Stage { return ph.stage }
 
 func (ph *PrometheusHistogram) Observe(v float64, labels map[string]string) {
+	mustBeExhaustive(ph.labels, labels)
 	ph.HistogramVec.With(labels).Observe(v)
 }
 
@@ -186,6 +203,7 @@ func (ps *PrometheusSummary) Labels() []Label { return ps.labels }
 func (ps *PrometheusSummary) Stage() Stage { return ps.stage }
 
 func (ps *PrometheusSummary) Observe(v float64, labels map[string]string) {
+	mustBeExhaustive(ps.labels, labels)
 	ps.SummaryVec.With(labels).Observe(v)
 }
 
