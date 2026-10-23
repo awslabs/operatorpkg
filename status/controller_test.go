@@ -17,7 +17,6 @@ import (
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,15 +53,6 @@ func (spy *spyClient) reset() {
 	spy.unstructuredGets = 0
 }
 
-var _ = AfterEach(func() {
-	status.ConditionDuration.Reset()
-	status.ConditionCount.Reset()
-	status.ConditionCurrentStatusSeconds.Reset()
-	status.ConditionTransitionsTotal.Reset()
-	status.TerminationCurrentTimeSeconds.Reset()
-	status.TerminationDuration.Reset()
-})
-
 var _ = Describe("Controller", func() {
 	var ctx context.Context
 	var recorder *record.FakeRecorder
@@ -72,7 +62,7 @@ var _ = Describe("Controller", func() {
 		recorder = record.NewFakeRecorder(10)
 		kubeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&test.CustomObject{}).Build()
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
-		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.EmitDeprecatedMetrics)
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder)
 	})
 	AfterEach(func() {
 		metrics.Registry = registry // reset the registry to handle cases where the registry is overridden
@@ -98,10 +88,7 @@ var _ = Describe("Controller", func() {
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectDeletionTimestampSet(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-		metric := GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
-		Expect(metric).ToNot(BeNil())
-		Expect(metric.GetGauge().GetValue()).To(BeNumerically(">", 0))
-		metric = GetMetric("operator_customobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
+		metric := GetMetric("operator_customobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
 		Expect(metric).ToNot(BeNil())
 		Expect(metric.GetGauge().GetValue()).To(BeNumerically(">", 0))
 
@@ -110,18 +97,13 @@ var _ = Describe("Controller", func() {
 		testObject.SetFinalizers([]string{})
 		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
 		ExpectReconciled(ctx, controller, testObject)
-		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
 		Expect(GetMetric("operator_customobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
-		metric = GetMetric("operator_termination_duration_seconds", map[string]string{})
-		Expect(metric).ToNot(BeNil())
-		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 		metric = GetMetric("operator_customobject_termination_duration_seconds", map[string]string{})
 		Expect(metric).ToNot(BeNil())
 		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 	})
 	It("should label transition_seconds with the destination status a condition transitioned to", func() {
 		testObject := test.Object(&test.CustomObject{})
-		gvk := object.GVK(testObject)
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject) // observe Foo=Unknown
 
@@ -145,15 +127,9 @@ var _ = Describe("Controller", func() {
 			status.MetricLabelConditionStatus:   string(metav1.ConditionUnknown),
 			status.MetricLabelToConditionStatus: string(metav1.ConditionFalse),
 		})).To(BeNil())
-		// The deprecated (group/kind-labeled) variant carries to_status as well.
-		Expect(GetMetric("operator_status_condition_transition_seconds", lo.Assign(recovered, map[string]string{
-			pmetrics.LabelGroup: gvk.Group,
-			pmetrics.LabelKind:  gvk.Kind,
-		})).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 	})
 	It("should emit metrics and events on a transition", func() {
 		testObject := test.Object(&test.CustomObject{})
-		gvk := object.GVK(testObject)
 		testObject.StatusConditions() // initialize conditions
 
 		// conditions not set
@@ -161,12 +137,6 @@ var _ = Describe("Controller", func() {
 		ExpectReconciled(ctx, controller, testObject)
 
 		// Ready Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -176,12 +146,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -191,12 +155,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -204,9 +162,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
-
-		Expect(GetMetric("operator_status_condition_transition_seconds")).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total")).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds")).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total")).To(BeNil())
@@ -221,12 +176,6 @@ var _ = Describe("Controller", func() {
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeFoo, Status: metav1.ConditionTrue})
 
 		// Ready Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -236,12 +185,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -251,12 +194,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -264,16 +201,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
-
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -284,16 +211,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -314,12 +231,6 @@ var _ = Describe("Controller", func() {
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeBar, Status: metav1.ConditionTrue, Reason: "reason", Message: "message"})
 
 		// Ready Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -329,12 +240,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -344,12 +249,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -359,12 +258,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		// Ready Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -374,12 +267,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -389,12 +276,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -402,16 +283,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -422,16 +293,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -451,12 +312,6 @@ var _ = Describe("Controller", func() {
 		ExpectReconciled(ctx, controller, testObject)
 
 		// Ready Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
@@ -466,12 +321,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -481,12 +330,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -497,7 +340,6 @@ var _ = Describe("Controller", func() {
 	})
 	It("should emit transition total metrics for abnormal conditions", func() {
 		testObject := test.Object(&test.CustomObject{})
-		gvk := object.GVK(testObject)
 		testObject.StatusConditions() // initialize conditions
 
 		// conditions not set
@@ -511,10 +353,6 @@ var _ = Describe("Controller", func() {
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeBar, Status: metav1.ConditionTrue, Reason: test.ConditionTypeBar, Message: ""})
 
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
@@ -526,10 +364,6 @@ var _ = Describe("Controller", func() {
 		ExpectReconciled(ctx, controller, testObject)
 		ExpectStatusConditions(ctx, kubeClient, FastTimeout, testObject, status.Condition{Type: test.ConditionTypeBar, Status: metav1.ConditionFalse, Reason: "reason", Message: "message"})
 
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
@@ -539,10 +373,6 @@ var _ = Describe("Controller", func() {
 
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, test.ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_customobject_status_condition_transitions_total", conditionLabels(test.ConditionTypeBar, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
@@ -677,8 +507,6 @@ var _ = Describe("Controller", func() {
 	})
 	It("should ensure that we don't leak metrics when changing labels", func() {
 		metrics.Registry = prometheus.NewRegistry()
-		metrics.Registry.Register(status.ConditionCount.(*pmetrics.PrometheusGauge).GaugeVec)
-		metrics.Registry.Register(status.ConditionCurrentStatusSeconds.(*pmetrics.PrometheusGauge).GaugeVec)
 		testObject := test.Object(&test.CustomObject{
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{
@@ -693,7 +521,7 @@ var _ = Describe("Controller", func() {
 		})
 		ExpectApplied(ctx, kubeClient, testObject)
 
-		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"), status.EmitDeprecatedMetrics)
+		controller = status.NewController[*test.CustomObject](kubeClient, recorder, status.WithLabels("operator.pkg/key1", "operator.pkg/key2", "operator.pkg/key3"))
 		ExpectReconciled(ctx, controller, testObject)
 
 		Expect(GetMetric("operator_customobject_status_condition_count", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
@@ -702,9 +530,6 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionFalse), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""}))).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge().GetValue()).ToNot(BeZero())
-
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		// Set empty label to a different value and ensure that we don't still keep track of the old metric
 		testObject.Labels["operator.pkg/key3"] = "value3"
@@ -722,16 +547,9 @@ var _ = Describe("Controller", func() {
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": ""})).GetGauge()).To(BeNil())
 		Expect(GetMetric("operator_customobject_status_condition_current_status_seconds", lo.Assign(conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown), map[string]string{"operator_pkg_key1": "value1", "operator_pkg_key2": "value2", "operator_pkg_key3": "value3"})).GetGauge().GetValue()).ToNot(BeZero())
 
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
-
 		testObject.StatusConditions().SetTrueWithReason(test.ConditionTypeFoo, "reason", "message")
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, controller, testObject)
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(0))
-		Expect(GetMetric("operator_status_condition_count", conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabels(test.ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
 	})
 	DescribeTable("should add labels to metrics", func(labelOption option.Function[status.Option], isGaugeOption bool) {
 		metrics.Registry = prometheus.NewRegistry()
@@ -868,7 +686,7 @@ var _ = Describe("Generic Controller", func() {
 		spy = &spyClient{Client: fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()}
 		kubeClient = spy
 		ctx = log.IntoContext(context.Background(), GinkgoLogr)
-		genericController = status.NewGenericObjectController[*TestGenericObject](spy, recorder, status.EmitDeprecatedMetrics)
+		genericController = status.NewGenericObjectController[*TestGenericObject](spy, recorder)
 	})
 	AfterEach(func() {
 		metrics.Registry = registry // reset the registry to handle cases where the registry is overridden
@@ -894,10 +712,7 @@ var _ = Describe("Generic Controller", func() {
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectDeletionTimestampSet(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
-		metric := GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
-		Expect(metric).ToNot(BeNil())
-		Expect(metric.GetGauge().GetValue()).To(BeNumerically(">", 0))
-		metric = GetMetric("operator_testgenericobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
+		metric := GetMetric("operator_testgenericobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})
 		Expect(metric).ToNot(BeNil())
 		Expect(metric.GetGauge().GetValue()).To(BeNumerically(">", 0))
 
@@ -906,11 +721,7 @@ var _ = Describe("Generic Controller", func() {
 		testObject.SetFinalizers([]string{})
 		Expect(client.IgnoreNotFound(kubeClient.Patch(ctx, testObject, mergeFrom))).To(Succeed())
 		ExpectReconciled(ctx, genericController, testObject)
-		Expect(GetMetric("operator_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_termination_current_time_seconds", map[string]string{status.MetricLabelName: testObject.Name})).To(BeNil())
-		metric = GetMetric("operator_termination_duration_seconds", map[string]string{})
-		Expect(metric).ToNot(BeNil())
-		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 		metric = GetMetric("operator_testgenericobject_termination_duration_seconds", map[string]string{})
 		Expect(metric).ToNot(BeNil())
 		Expect(metric.GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
@@ -936,12 +747,6 @@ var _ = Describe("Generic Controller", func() {
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -951,12 +756,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -964,9 +763,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
-
-		Expect(GetMetric("operator_status_condition_transition_seconds", map[string]string{pmetrics.LabelKind: gvk.Kind})).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", map[string]string{pmetrics.LabelKind: gvk.Kind})).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", map[string]string{pmetrics.LabelKind: gvk.Kind})).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", map[string]string{pmetrics.LabelKind: gvk.Kind})).To(BeNil())
@@ -992,12 +788,6 @@ var _ = Describe("Generic Controller", func() {
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -1007,12 +797,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -1021,26 +805,12 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetGauge().GetValue()).ToNot(BeZero())
 
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -1071,12 +841,6 @@ var _ = Describe("Generic Controller", func() {
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -1086,12 +850,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -1101,12 +859,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -1116,12 +868,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -1130,26 +876,12 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transition_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transition_seconds", conditionLabels(ConditionTypeBar, metav1.ConditionUnknown)).GetHistogram().GetSampleCount()).To(BeNumerically(">", 0))
-
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -1165,12 +897,6 @@ var _ = Describe("Generic Controller", func() {
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// Foo Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeFoo, metav1.ConditionFalse))).To(BeNil())
@@ -1180,12 +906,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(ConditionTypeFoo, metav1.ConditionUnknown))).To(BeNil())
 
 		// Bar Condition
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, ConditionTypeBar, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionTrue))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(ConditionTypeBar, metav1.ConditionFalse))).To(BeNil())
@@ -1196,7 +916,6 @@ var _ = Describe("Generic Controller", func() {
 	})
 	It("should not emit a synthetic Ready condition metric for objects without one", func() {
 		testObject := test.Object(&TestGenericObject{})
-		gvk := object.GVK(testObject)
 		testObject.Status = TestGenericStatus{
 			Conditions: []metav1.Condition{
 				{Type: ConditionTypeFoo, Status: metav1.ConditionTrue},
@@ -1207,14 +926,9 @@ var _ = Describe("Generic Controller", func() {
 		ExpectReconciled(ctx, genericController, testObject)
 
 		// The observed Foo condition is emitted.
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, ConditionTypeFoo, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
 
 		// No Ready condition is present on the object, so the generic controller must not
 		// fabricate a Ready=Unknown metric for it, across either metric family.
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionUnknown))).To(BeNil())
 	})
@@ -1223,7 +937,6 @@ var _ = Describe("Generic Controller", func() {
 		// initialization of absent conditions must not stop us from reporting a Ready
 		// that is actually present on the object.
 		testObject := test.Object(&TestGenericObject{})
-		gvk := object.GVK(testObject)
 		testObject.Status = TestGenericStatus{
 			Conditions: []metav1.Condition{
 				{Type: status.ConditionReady, Status: metav1.ConditionTrue},
@@ -1233,13 +946,11 @@ var _ = Describe("Generic Controller", func() {
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
-		Expect(GetMetric("operator_status_condition_count", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_current_status_seconds", conditionLabelsWithGroupKind(gvk, status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
 		Expect(GetMetric("operator_testgenericobject_status_condition_count", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).To(BeEquivalentTo(1))
+		Expect(GetMetric("operator_testgenericobject_status_condition_current_status_seconds", conditionLabels(status.ConditionReady, metav1.ConditionTrue)).GetGauge().GetValue()).ToNot(BeZero())
 	})
 	It("should emit transition total metrics for abnormal conditions", func() {
 		testObject := test.Object(&TestGenericObject{})
-		gvk := object.GVK(testObject)
 		testObject.Status = TestGenericStatus{
 			Conditions: []metav1.Condition{
 				{
@@ -1274,10 +985,6 @@ var _ = Describe("Generic Controller", func() {
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionFalse))).To(BeNil())
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
-
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse))).To(BeNil())
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
@@ -1302,10 +1009,6 @@ var _ = Describe("Generic Controller", func() {
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
 
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
-
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
@@ -1323,10 +1026,6 @@ var _ = Describe("Generic Controller", func() {
 
 		ExpectApplied(ctx, kubeClient, testObject)
 		ExpectReconciled(ctx, genericController, testObject)
-
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
-		Expect(GetMetric("operator_status_condition_transitions_total", conditionLabelsWithGroupKind(gvk, ConditionTypeBaz, metav1.ConditionUnknown))).To(BeNil())
 
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionTrue)).GetCounter().GetValue()).To(BeEquivalentTo(1))
 		Expect(GetMetric("operator_testgenericobject_status_condition_transitions_total", conditionLabels(ConditionTypeBaz, metav1.ConditionFalse)).GetCounter().GetValue()).To(BeEquivalentTo(1))
@@ -1411,15 +1110,6 @@ var _ = Describe("Generic Controller", func() {
 		Expect(spy.unstructuredGets).To(Equal(0))
 	})
 })
-
-func conditionLabelsWithGroupKind(gvk schema.GroupVersionKind, t status.ConditionType, s metav1.ConditionStatus) map[string]string {
-	return map[string]string{
-		pmetrics.LabelGroup:               gvk.Group,
-		pmetrics.LabelKind:                gvk.Kind,
-		pmetrics.LabelType:                string(t),
-		status.MetricLabelConditionStatus: string(s),
-	}
-}
 
 func conditionLabels(t status.ConditionType, s metav1.ConditionStatus) map[string]string {
 	return map[string]string{
