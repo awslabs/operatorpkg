@@ -63,10 +63,8 @@ var (
 )
 
 // Cardinality is limited to # objects * # conditions * # objectives
-var ConditionDuration = conditionDurationMetric("", nil, pmetrics.Group, pmetrics.Kind)
-
 func conditionDurationMetric(objectName string, buckets []float64, additionalLabels ...pmetrics.Label) pmetrics.ObservationMetric {
-	subsystem := lo.Ternary(len(objectName) == 0, MetricSubsystem, fmt.Sprintf("%s_%s", objectName, MetricSubsystem))
+	subsystem := fmt.Sprintf("%s_%s", objectName, MetricSubsystem)
 	buckets = lo.Ternary(len(buckets) == 0, prometheus.DefBuckets, buckets)
 
 	return pmetrics.NewPrometheusHistogram(
@@ -88,10 +86,8 @@ func conditionDurationMetric(objectName string, buckets []float64, additionalLab
 }
 
 // Cardinality is limited to # objects * # conditions
-var ConditionCount = conditionCountMetric("", pmetrics.Group, pmetrics.Kind)
-
 func conditionCountMetric(objectName string, additionalLabels ...pmetrics.Label) pmetrics.GaugeMetric {
-	subsystem := lo.Ternary(len(objectName) == 0, MetricSubsystem, fmt.Sprintf("%s_%s", objectName, MetricSubsystem))
+	subsystem := fmt.Sprintf("%s_%s", objectName, MetricSubsystem)
 
 	return pmetrics.NewPrometheusGauge(
 		metrics.Registry,
@@ -115,10 +111,8 @@ func conditionCountMetric(objectName string, additionalLabels ...pmetrics.Label)
 // Cardinality is limited to # objects * # conditions
 // NOTE: This metric is based on a requeue so it won't show the current status seconds with extremely high accuracy.
 // This metric is useful for aggregations. If you need a high accuracy metric, use operator_status_condition_last_transition_time_seconds
-var ConditionCurrentStatusSeconds = conditionCurrentStatusSecondsMetric("", pmetrics.Group, pmetrics.Kind)
-
 func conditionCurrentStatusSecondsMetric(objectName string, additionalLabels ...pmetrics.Label) pmetrics.GaugeMetric {
-	subsystem := lo.Ternary(len(objectName) == 0, MetricSubsystem, fmt.Sprintf("%s_%s", objectName, MetricSubsystem))
+	subsystem := fmt.Sprintf("%s_%s", objectName, MetricSubsystem)
 
 	return pmetrics.NewPrometheusGauge(
 		metrics.Registry,
@@ -140,10 +134,8 @@ func conditionCurrentStatusSecondsMetric(objectName string, additionalLabels ...
 }
 
 // Cardinality is limited to # objects * # conditions
-var ConditionTransitionsTotal = conditionTransitionsTotalMetric("", pmetrics.Group, pmetrics.Kind)
-
 func conditionTransitionsTotalMetric(objectName string, additionalLabels ...pmetrics.Label) pmetrics.CounterMetric {
-	subsystem := lo.Ternary(len(objectName) == 0, MetricSubsystem, fmt.Sprintf("%s_%s", objectName, MetricSubsystem))
+	subsystem := fmt.Sprintf("%s_%s", objectName, MetricSubsystem)
 
 	return pmetrics.NewPrometheusCounter(
 		metrics.Registry,
@@ -163,10 +155,8 @@ func conditionTransitionsTotalMetric(objectName string, additionalLabels ...pmet
 
 }
 
-var TerminationCurrentTimeSeconds = terminationCurrentTimeSecondsMetric("", pmetrics.Group, pmetrics.Kind)
-
 func terminationCurrentTimeSecondsMetric(objectName string, additionalLabels ...pmetrics.Label) pmetrics.GaugeMetric {
-	subsystem := lo.Ternary(len(objectName) == 0, TerminationSubsystem, fmt.Sprintf("%s_%s", objectName, TerminationSubsystem))
+	subsystem := fmt.Sprintf("%s_%s", objectName, TerminationSubsystem)
 
 	return pmetrics.NewPrometheusGauge(
 		metrics.Registry,
@@ -184,10 +174,8 @@ func terminationCurrentTimeSecondsMetric(objectName string, additionalLabels ...
 	)
 }
 
-var TerminationDuration = terminationDurationMetric("", nil, pmetrics.Group, pmetrics.Kind)
-
 func terminationDurationMetric(objectName string, buckets []float64, additionalLabels ...pmetrics.Label) pmetrics.ObservationMetric {
-	subsystem := lo.Ternary(len(objectName) == 0, TerminationSubsystem, fmt.Sprintf("%s_%s", objectName, TerminationSubsystem))
+	subsystem := fmt.Sprintf("%s_%s", objectName, TerminationSubsystem)
 	buckets = lo.Ternary(len(buckets) == 0, prometheus.DefBuckets, buckets)
 
 	return pmetrics.NewPrometheusHistogram(
