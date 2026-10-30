@@ -59,10 +59,15 @@ type Label struct {
 	Values []docs.Value
 	// Stage is the stability of the label.
 	Stage docs.Stage
+	// Selectable labels can be used in scheduling constraints, e.g. an operator's
+	// requirements or a pod's nodeSelector or node affinity, to choose the nodes
+	// the operator launches and the nodes pods schedule to. A documentation
+	// generator should list Selectable labels separately from the rest.
+	Selectable bool
 	// InternalOnly labels are set by the operator itself and must never be set or
 	// selected on by users or other controllers. They are not a user-facing API, so
-	// they are always docs.Alpha. A label the operator sets but users select on,
-	// e.g. in a nodeSelector, is not InternalOnly.
+	// they are always docs.Alpha and never Selectable. A label the operator sets but
+	// users select on, e.g. in a nodeSelector, is not InternalOnly.
 	InternalOnly bool
 }
 
