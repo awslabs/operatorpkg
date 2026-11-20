@@ -5,6 +5,7 @@ package status
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -37,10 +38,13 @@ func NewSucceededConditions(d ...string) ConditionTypes {
 }
 
 func newConditionTypes(root string, dependents ...string) ConditionTypes {
-	return ConditionTypes{
-		root:       root,
-		dependents: lo.Reject(lo.Uniq(dependents), func(c string, _ int) bool { return c == root }),
+	deps := make([]string, 0, len(dependents))
+	for _, d := range dependents {
+		if d != root && !slices.Contains(deps, d) {
+			deps = append(deps, d)
+		}
 	}
+	return ConditionTypes{root: root, dependents: deps}
 }
 
 // ConditionSet provides methods for evaluating Conditions.
@@ -80,18 +84,25 @@ func WithObservedOnly() ForOption {
 // For creates a ConditionSet from an object using the original
 // ConditionTypes as a reference. Status must be a pointer to a struct.
 func (r ConditionTypes) For(object Object, opts ...ForOption) ConditionSet {
-	o := ForOptions{Clock: clock.RealClock{}}
-	for _, opt := range opts {
-		opt(&o)
-	}
-	cs := ConditionSet{object: object, ConditionTypes: r, clock: o.Clock}
-	if o.ObservedOnly {
-		return cs
+	cs := ConditionSet{object: object, ConditionTypes: r, clock: clock.RealClock{}}
+	// Options are only built when passed, so the common no-option call doesn't allocate them.
+	if len(opts) > 0 {
+		o := ForOptions{Clock: cs.clock}
+		for _, opt := range opts {
+			opt(&o)
+		}
+		cs.clock = o.Clock
+		if o.ObservedOnly {
+			return cs
+		}
 	}
 	// Set known conditions Unknown if not set.
 	// Set the root condition first to get consistent timing for LastTransitionTime
-	for _, t := range append([]string{r.root}, r.dependents...) {
-		if cs.Get(t) == nil {
+	if cs.find(r.root) == nil {
+		cs.SetUnknown(r.root)
+	}
+	for _, t := range r.dependents {
+		if cs.find(t) == nil {
 			cs.SetUnknown(t)
 		}
 	}
@@ -100,10 +111,7 @@ func (r ConditionTypes) For(object Object, opts ...ForOption) ConditionSet {
 
 // Root returns the root Condition, typically "Ready" or "Succeeded"
 func (c ConditionSet) Root() *Condition {
-	if c.object == nil {
-		return nil
-	}
-	return c.Get(c.root)
+	return c.find(c.root).clone()
 }
 
 func (c ConditionSet) List() []Condition {
@@ -116,23 +124,32 @@ func (c ConditionSet) List() []Condition {
 // Get finds and returns the Condition that matches the ConditionType
 // previously set on Conditions.
 func (c ConditionSet) Get(t string) *Condition {
-	if c.object == nil {
-		return nil
-	}
-	if condition, found := lo.Find(c.object.GetConditions(), func(c Condition) bool { return c.Type == t }); found {
-		return &condition
-	}
-	return nil
+	return c.find(t).clone()
 }
 
 // IsTrue returns true if all condition types are true.
 func (c ConditionSet) IsTrue(conditionTypes ...string) bool {
 	for _, conditionType := range conditionTypes {
-		if !c.Get(conditionType).IsTrue() {
+		if !c.find(conditionType).IsTrue() {
 			return false
 		}
 	}
 	return true
+}
+
+// find returns the object's own Condition of type t, or nil. Unlike Get it doesn't copy the Condition, so
+// callers must not modify or keep the result.
+func (c ConditionSet) find(t string) *Condition {
+	if c.object == nil {
+		return nil
+	}
+	conditions := c.object.GetConditions()
+	for i := range conditions {
+		if conditions[i].Type == t {
+			return &conditions[i]
+		}
+	}
+	return nil
 }
 
 func (c ConditionSet) IsDependentCondition(t string) bool {

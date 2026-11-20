@@ -29,6 +29,16 @@ const (
 // Condition aliases the upstream type and adds additional helper methods
 type Condition metav1.Condition
 
+// clone returns a copy of c, or nil if c is nil. It keeps Get and Root small enough to be inlined, so a copy that
+// the caller doesn't keep stays on the caller's stack.
+func (c *Condition) clone() *Condition {
+	if c == nil {
+		return nil
+	}
+	copied := *c
+	return &copied
+}
+
 func (c *Condition) IsTrue() bool {
 	if c == nil {
 		return false
